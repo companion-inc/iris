@@ -1,0 +1,4 @@
+packages:
+  - "apps/iris-api"
+  - "apps/iris-site"
+  - "packages/*"

@@ -1,0 +1,17 @@
+[Unit]
+Description=Iris device BLE setup server
+After=bluetooth.target
+Wants=bluetooth.target
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/iris-device/current
+EnvironmentFile=/opt/iris-device/.env
+ExecStartPre=/opt/iris-device/current/scripts/bluetooth-ready.sh
+ExecStart=/opt/iris-device/.venv/bin/python /opt/iris-device/current/device_setup_ble.py
+Restart=always
+RestartSec=5
+User=root
+
+[Install]
+WantedBy=multi-user.target

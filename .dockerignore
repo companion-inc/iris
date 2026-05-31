@@ -1,0 +1,11 @@
+**
+
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!patches/
+!patches/**
+!apps/
+apps/*
+!apps/iris-api/
+!apps/iris-api/**

@@ -1,0 +1,38 @@
+{
+  "name": "iris",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "api:dev": "PORT=4747 IRIS_AUTH_MODE=local IRIS_TOKEN_SECRET=dev-token IRIS_INITIALIZE_SCHEMA=true IRIS_SQLITE_PATH=.iris/iris.sqlite IRIS_VOICE_URL=http://127.0.0.1:4748 IRIS_SPEAKER_ID_URL=http://127.0.0.1:4749 pnpm --filter @iris/api dev",
+    "api:build": "pnpm --filter @iris/api build",
+    "desktop:start": "pnpm mac:open",
+    "desktop:open": "pnpm mac:open",
+    "mac:build": "cd apps/iris-mac && swift build",
+    "mac:run": "cd apps/iris-mac && swift run Iris",
+    "mac:open": "bash apps/iris-mac/scripts/open-macos.sh",
+    "mac:verify-bundle": "bash apps/iris-mac/scripts/verify-bundle.sh",
+    "voice:dev": "cd apps/iris-voice && IRIS_TOKEN_SECRET=${IRIS_TOKEN_SECRET:-dev-token} uv run iris-voice --host 0.0.0.0 --port ${IRIS_VOICE_PORT:-4748}",
+    "voice:check": "cd apps/iris-voice && uv run python -m compileall src",
+    "voice:smoke": "cd apps/iris-voice && uv run ../../scripts/voice-websocket-smoke-test.py",
+    "voice:scenario": "cd apps/iris-voice && uv run ../../scripts/voice-websocket-scenario-test.py",
+    "speaker-id:dev": "cd apps/iris-speaker-id && uv run iris-speaker-id --host 0.0.0.0 --port ${IRIS_SPEAKER_ID_PORT:-4749}",
+    "speaker-id:check": "python3 -m compileall apps/iris-speaker-id/src",
+    "sound-recognition:dev": "cd apps/iris-sound-recognition && IRIS_SOUND_RECOGNITION_BACKEND=${IRIS_SOUND_RECOGNITION_BACKEND:-heuristic} uv run iris-sound-recognition --host 0.0.0.0 --port ${IRIS_SOUND_RECOGNITION_PORT:-4751}",
+    "sound-recognition:check": "cd apps/iris-sound-recognition && uv run --no-sync python -m compileall src",
+    "device:start": "python3 apps/iris-device/device_client.py",
+    "device:setup": "python3 apps/iris-device/device_setup_ble.py",
+    "typecheck": "pnpm --filter @iris/api typecheck"
+  },
+  "engines": {
+    "node": ">=20.19.0",
+    "pnpm": ">=10.33.2"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "better-sqlite3",
+      "esbuild"
+    ]
+  },
+  "packageManager": "pnpm@10.33.2"
+}

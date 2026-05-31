@@ -1,0 +1,20 @@
+[Unit]
+Description=Iris device audio client
+After=network-online.target sound.target
+Wants=network-online.target
+ConditionPathExists=/opt/iris-device/.device-token
+
+[Service]
+Type=simple
+WorkingDirectory=/opt/iris-device/current
+EnvironmentFile=/opt/iris-device/.env
+ExecStartPre=/opt/iris-device/current/scripts/audio-ready.sh
+ExecStart=/opt/iris-device/.venv/bin/python /opt/iris-device/current/device_client.py stream
+Restart=always
+RestartSec=5
+User=pi
+Group=audio
+SupplementaryGroups=audio
+
+[Install]
+WantedBy=multi-user.target

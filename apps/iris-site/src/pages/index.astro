@@ -1,0 +1,122 @@
+---
+const releaseUrl =
+  "https://github.com/companion-inc/iris/releases/download/iris-macos-v0.1.0-20260531/Iris-macOS-arm64.zip";
+const repoUrl = "https://github.com/companion-inc/iris";
+---
+
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Iris</title>
+    <meta
+      name="description"
+      content="Iris is a local macOS voice desktop app for running agent work from your computer."
+    />
+    <style>
+      :root {
+        color-scheme: light;
+        font-family:
+          Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+        background: #f7f7f4;
+        color: #171716;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+      }
+
+      main {
+        min-height: 100vh;
+        display: grid;
+        place-items: center;
+        padding: 32px;
+      }
+
+      .shell {
+        width: min(100%, 720px);
+      }
+
+      h1 {
+        margin: 0 0 16px;
+        font-size: clamp(52px, 12vw, 112px);
+        line-height: 0.9;
+        font-weight: 760;
+        letter-spacing: 0;
+      }
+
+      p {
+        width: min(100%, 560px);
+        margin: 0 0 28px;
+        color: #4c4b46;
+        font-size: 20px;
+        line-height: 1.5;
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      .button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        min-height: 48px;
+        padding: 0 18px;
+        border: 1px solid #171716;
+        border-radius: 8px;
+        text-decoration: none;
+        font-size: 15px;
+        font-weight: 650;
+      }
+
+      .button.primary {
+        background: #171716;
+        color: #fffdf7;
+      }
+
+      .meta {
+        margin-top: 22px;
+        color: #74716a;
+        font-size: 13px;
+      }
+
+      @media (max-width: 560px) {
+        main {
+          place-items: end start;
+          padding: 24px;
+        }
+
+        .actions {
+          flex-direction: column;
+          align-items: stretch;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="shell" aria-labelledby="title">
+        <h1 id="title">Iris</h1>
+        <p>Local macOS voice control for running agent work from your computer.</p>
+        <div class="actions">
+          <a class="button primary" href={releaseUrl}>Download for macOS</a>
+          <a class="button" href={repoUrl}>View source</a>
+        </div>
+        <div class="meta">Apple Silicon build · v0.1.0 · Local-first desktop app</div>
+      </section>
+    </main>
+  </body>
+</html>

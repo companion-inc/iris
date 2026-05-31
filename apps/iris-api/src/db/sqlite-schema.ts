@@ -1,0 +1,325 @@
+import { getSqliteDatabase } from "./client.js";
+
+const statements = [
+  `create table if not exists organizations (
+    id text primary key,
+    name text not null,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists users (
+    id text primary key,
+    email text not null unique,
+    name text,
+    first_name text,
+    last_name text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists organization_members (
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    role text not null,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    primary key (organization_id, user_id)
+  )`,
+  `create table if not exists devices (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    kind text not null,
+    product text,
+    model text,
+    name text not null,
+    status text not null,
+    settings text not null,
+    device_serial text,
+    firmware_version text,
+    hardware_info text,
+    last_seen_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists device_pairing_tokens (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    device_id text not null references devices(id) on delete cascade,
+    token_hash text not null unique,
+    expires_at text not null,
+    claimed_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists device_credentials (
+    id text primary key,
+    device_id text not null references devices(id) on delete cascade,
+    token_hash text not null unique,
+    revoked_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists device_secrets (
+    device_id text primary key references devices(id) on delete cascade,
+    llm_api_key_ciphertext text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists agent_discovery_offers (
+    id text primary key,
+    offer_token_hash text not null unique,
+    code text not null unique,
+    role text not null,
+    name text not null,
+    hostname text,
+    platform text,
+    arch text,
+    codex_version text,
+    bridge_url text,
+    status text not null,
+    pending_organization_id text,
+    pending_user_id text,
+    pending_user_name text,
+    pending_user_email text,
+    device_id text references devices(id) on delete set null,
+    expires_at text not null,
+    last_seen_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists organization_invitations (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    email text not null,
+    role text not null,
+    inviter_user_id text not null references users(id) on delete cascade,
+    token_hash text not null unique,
+    status text not null,
+    accepted_user_id text references users(id) on delete set null,
+    accepted_at text,
+    expires_at text not null,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists agent_runs (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    session_id text,
+    source_device_id text,
+    agent_id text not null references devices(id) on delete cascade,
+    thread_id text,
+    status text not null,
+    action text not null,
+    prompt text,
+    context text,
+    response_style text,
+    request text not null,
+    result text,
+    error text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    started_at text,
+    completed_at text
+  )`,
+  `create table if not exists codex_threads (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    agent_id text not null references devices(id) on delete cascade,
+    session_id text,
+    source_device_id text,
+    codex_thread_id text,
+    title text,
+    summary text,
+    status text not null,
+    current_run_id text,
+    last_activity_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists agent_completions (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    run_id text not null references agent_runs(id) on delete cascade,
+    session_id text,
+    source_device_id text,
+    agent_id text not null references devices(id) on delete cascade,
+    thread_id text references codex_threads(id) on delete set null,
+    delivery text not null,
+    status text not null,
+    content text,
+    result text,
+    error text,
+    delivered_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    unique (run_id)
+  )`,
+  `create table if not exists agent_approvals (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    run_id text references agent_runs(id) on delete set null,
+    session_id text,
+    source_device_id text,
+    agent_id text not null references devices(id) on delete cascade,
+    thread_id text references codex_threads(id) on delete set null,
+    codex_request_id text,
+    codex_method text not null,
+    status text not null,
+    request text not null,
+    response text,
+    error text,
+    expires_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    resolved_at text
+  )`,
+  `create table if not exists speaker_profiles (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    display_name text not null,
+    status text not null,
+    provider text not null,
+    sample_count integer not null default 0,
+    model text,
+    embedding_ciphertext text,
+    enrolled_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    unique (organization_id, user_id)
+  )`,
+  `create table if not exists user_memories (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    source_device_id text references devices(id) on delete set null,
+    source_session_id text,
+    kind text not null,
+    content text not null,
+    normalized_content text not null,
+    confidence text not null,
+    status text not null,
+    metadata text not null default '{}',
+    last_used_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    unique (organization_id, user_id, normalized_content)
+  )`,
+  `create table if not exists voice_sessions (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    device_id text not null references devices(id) on delete cascade,
+    source text not null,
+    room_name text not null,
+    status text not null,
+    started_at text not null,
+    ended_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists transcript_segments (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    device_id text references devices(id) on delete set null,
+    session_id text not null,
+    source text not null,
+    text text not null,
+    words text,
+    is_interim integer not null default 0,
+    speaker_label text,
+    speaker_user_id text references users(id) on delete set null,
+    speaker_name text,
+    speaker_confidence real,
+    emotion_label text,
+    emotion_confidence real,
+    emotion_model text,
+    confidence real,
+    started_at text not null,
+    ended_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists summaries (
+    id text primary key,
+    organization_id text not null references organizations(id) on delete cascade,
+    user_id text not null references users(id) on delete cascade,
+    type text not null,
+    title text not null,
+    summary text not null,
+    important_points text not null default '[]',
+    action_items text not null default '[]',
+    source_segment_ids text not null default '[]',
+    period_start text not null,
+    period_end text not null,
+    status text not null,
+    generated_at text,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    updated_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+    unique (organization_id, user_id, type, period_start, period_end)
+  )`,
+  `create virtual table if not exists transcript_segments_fts using fts5(
+    text,
+    content='transcript_segments',
+    content_rowid='rowid'
+  )`,
+  `create trigger if not exists transcript_segments_fts_ai after insert on transcript_segments begin
+    insert into transcript_segments_fts(rowid, text) values (new.rowid, new.text);
+  end`,
+  `create trigger if not exists transcript_segments_fts_ad after delete on transcript_segments begin
+    insert into transcript_segments_fts(transcript_segments_fts, rowid, text)
+    values ('delete', old.rowid, old.text);
+  end`,
+  `create trigger if not exists transcript_segments_fts_au after update on transcript_segments begin
+    insert into transcript_segments_fts(transcript_segments_fts, rowid, text)
+    values ('delete', old.rowid, old.text);
+    insert into transcript_segments_fts(rowid, text) values (new.rowid, new.text);
+  end`,
+  `create table if not exists event_tokens (
+    id text primary key,
+    token_hash text not null unique,
+    user_id text not null references users(id) on delete cascade,
+    expires_at text not null,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create table if not exists audit_events (
+    id text primary key,
+    organization_id text not null,
+    user_id text,
+    device_id text,
+    type text not null,
+    data text not null,
+    created_at text not null default (strftime('%Y-%m-%dT%H:%M:%fZ', 'now'))
+  )`,
+  `create index if not exists transcript_segments_session_idx on transcript_segments (session_id, started_at)`,
+  `create index if not exists transcript_segments_speaker_user_idx on transcript_segments (organization_id, speaker_user_id, started_at)`,
+  `create index if not exists transcript_segments_org_session_final_started_idx on transcript_segments (organization_id, session_id, started_at) where is_interim = 0`,
+  `create index if not exists transcript_segments_org_final_started_idx on transcript_segments (organization_id, started_at) where is_interim = 0`,
+  `create index if not exists summaries_org_type_period_idx on summaries (organization_id, type, period_start desc)`,
+  `create index if not exists voice_sessions_org_started_idx on voice_sessions (organization_id, started_at desc)`,
+  `create index if not exists voice_sessions_org_device_started_idx on voice_sessions (organization_id, device_id, started_at desc)`,
+  `create index if not exists agent_discovery_offers_status_idx on agent_discovery_offers (status, expires_at)`,
+  `create index if not exists organization_invitations_org_status_idx on organization_invitations (organization_id, status, expires_at)`,
+  `create index if not exists agent_runs_agent_status_idx on agent_runs (agent_id, status, created_at)`,
+  `create index if not exists agent_runs_org_status_idx on agent_runs (organization_id, status, created_at)`,
+  `create index if not exists agent_runs_thread_created_idx on agent_runs (thread_id, created_at)`,
+  `create index if not exists codex_threads_agent_status_idx on codex_threads (agent_id, status, last_activity_at)`,
+  `create index if not exists codex_threads_org_activity_idx on codex_threads (organization_id, last_activity_at)`,
+  `create index if not exists codex_threads_codex_id_idx on codex_threads (codex_thread_id)`,
+  `create index if not exists agent_completions_session_created_idx on agent_completions (session_id, created_at)`,
+  `create index if not exists agent_completions_org_created_idx on agent_completions (organization_id, created_at)`,
+  `create index if not exists agent_approvals_agent_status_idx on agent_approvals (agent_id, status, created_at)`,
+  `create index if not exists agent_approvals_org_status_idx on agent_approvals (organization_id, status, created_at)`,
+  `create index if not exists user_memories_user_status_idx on user_memories (organization_id, user_id, status, updated_at)`,
+];
+
+export async function initializeSqliteSchema() {
+  const database = getSqliteDatabase();
+  const initialize = database.transaction(() => {
+    for (const statement of statements) database.exec(statement);
+  });
+  initialize();
+  console.log("[db] sqlite schema ready");
+}

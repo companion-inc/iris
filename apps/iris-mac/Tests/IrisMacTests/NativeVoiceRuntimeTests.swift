@@ -1,0 +1,41 @@
+import AVFoundation
+import XCTest
+@testable import IrisMac
+
+final class NativeVoiceRuntimeTests: XCTestCase {
+    func testPCM16RoundTripBufferConversion() throws {
+        let format = try XCTUnwrap(
+            AVAudioFormat(commonFormat: .pcmFormatFloat32, sampleRate: 16_000, channels: 1, interleaved: false)
+        )
+        let input = try XCTUnwrap(AVAudioPCMBuffer(pcmFormat: format, frameCapacity: 4))
+        input.frameLength = 4
+        let channel = try XCTUnwrap(input.floatChannelData?[0])
+        channel[0] = -1
+        channel[1] = -0.5
+        channel[2] = 0
+        channel[3] = 0.5
+
+        let pcm = NativeVoiceRuntime.pcm16Data(from: input)
+        XCTAssertEqual(pcm.count, 8)
+
+        let output = try XCTUnwrap(NativeVoiceRuntime.audioBuffer(fromPCM16: pcm, sampleRate: 16_000, channels: 1))
+        XCTAssertEqual(output.frameLength, 4)
+        let outputChannel = try XCTUnwrap(output.floatChannelData?[0])
+        XCTAssertEqual(outputChannel[0], -1, accuracy: 0.001)
+        XCTAssertEqual(outputChannel[1], -0.5, accuracy: 0.001)
+        XCTAssertEqual(outputChannel[2], 0, accuracy: 0.001)
+        XCTAssertEqual(outputChannel[3], 0.5, accuracy: 0.001)
+    }
+
+    func testVoiceEventSoundEffectMappingIncludesAgentCompletionEvents() {
+        XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "wake.accepted"), "wake")
+        XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "speaker.identified"), "speaker")
+        XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "sound.recognition.detected"), "sound")
+        XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "tool.started"), "tool")
+        XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "tool.finished"), "done")
+        XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "agent.completion.injected"), "done")
+        XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "hub.completion.injected"), "done")
+        XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "tool.failed"), "error")
+        XCTAssertNil(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "transcript.final"))
+    }
+}

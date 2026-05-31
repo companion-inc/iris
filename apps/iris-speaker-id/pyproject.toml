@@ -1,0 +1,19 @@
+[project]
+name = "iris-speaker-id"
+version = "0.1.0"
+requires-python = ">=3.11,<3.14"
+dependencies = [
+  "fastapi>=0.124.0",
+  "loguru>=0.7.3",
+  "numpy>=2.0.0",
+  "speechbrain>=1.0.3",
+  "torch>=2.4.0",
+  "torchaudio>=2.4.0",
+  "uvicorn[standard]>=0.38.0",
+]
+
+[project.scripts]
+iris-speaker-id = "iris_speaker_id.server:main"
+
+[tool.uv]
+package = true

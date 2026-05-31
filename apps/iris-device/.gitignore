@@ -1,0 +1,4 @@
+.env
+.device-token
+.venv/
+__pycache__/
