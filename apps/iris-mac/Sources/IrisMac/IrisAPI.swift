@@ -75,6 +75,39 @@ actor IrisAPI {
         return try decoder.decode(VoiceSessionStart.self, from: data)
     }
 
+    func startLocalAudio(voiceUrl: URL) async throws -> LocalAudioRuntimeStatus {
+        try await postLocalAudio(path: "local-audio/start", body: [
+            "voiceUrl": voiceUrl.absoluteString
+        ])
+    }
+
+    func stopLocalAudio(reason: String = "stopped") async throws -> LocalAudioRuntimeStatus {
+        try await postLocalAudio(path: "local-audio/stop", body: [
+            "reason": reason
+        ])
+    }
+
+    func localAudioStatus() async -> LocalAudioRuntimeStatus? {
+        await decode(LocalAudioRuntimeStatus.self, from: voiceURL.appending(path: "local-audio/status"))
+    }
+
+    private func postLocalAudio(path: String, body: [String: String]) async throws -> LocalAudioRuntimeStatus {
+        var request = URLRequest(url: voiceURL.appending(path: path))
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.httpBody = try JSONSerialization.data(withJSONObject: body)
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw URLError(.badServerResponse)
+        }
+        let status = try decoder.decode(LocalAudioRuntimeStatus.self, from: data)
+        if status.ok != true {
+            throw URLError(.cannotConnectToHost)
+        }
+        return status
+    }
+
     private func decode<T: Decodable>(_ type: T.Type, from url: URL) async -> T? {
         do {
             let (data, response) = try await URLSession.shared.data(from: url)

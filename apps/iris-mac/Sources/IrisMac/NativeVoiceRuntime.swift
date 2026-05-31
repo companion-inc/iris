@@ -1,21 +1,14 @@
 import AVFoundation
 import Foundation
 import SwiftUI
-import WebKit
 
 @MainActor
 @Observable
 final class NativeVoiceRuntime {
     private let api: IrisAPI
-    private var audioInput = NativeAudioInput()
-    private let session = URLSession(configuration: .default)
-    private var webSocket: URLSessionWebSocketTask?
     private var audioPlayer: AVAudioPlayer?
     private var soundEffectPlayer: AVAudioPlayer?
     private var soundEffectLastPlayed: [String: TimeInterval] = [:]
-    private var pendingOutputAudio = Data()
-    private var pendingOutputSampleRate = 48_000
-    private var pendingOutputChannels = 1
     private(set) var sessionID: String?
     private(set) var isRunning = false
     private(set) var status = "Idle"
@@ -23,7 +16,6 @@ final class NativeVoiceRuntime {
     fileprivate(set) var inputFrames = 0
     private(set) var outputFrames = 0
     private(set) var liveTranscripts: [TranscriptSegment] = []
-    var captureView: NSView { audioInput.webView }
 
     init(api: IrisAPI) {
         self.api = api
@@ -32,49 +24,38 @@ final class NativeVoiceRuntime {
     func start() async {
         guard !isRunning else { return }
         do {
-            status = "Starting microphone"
-            let input = try await startAudioInputWithTimeout()
-            let voiceSession = try await api.createVoiceSession(sampleRate: input.sampleRate, channels: input.channels)
+            status = "Starting Pipecat audio"
+            let voiceSession = try await api.createVoiceSession(sampleRate: 16_000, channels: 1)
             sessionID = voiceSession.sessionId
-            status = "Connecting voice runtime"
-
-            let task = session.webSocketTask(with: voiceSession.voiceUrl)
-            webSocket = task
-            task.resume()
-            receiveLoop(task)
-
+            let localStatus = try await api.startLocalAudio(voiceUrl: voiceSession.voiceUrl)
             isRunning = true
-            status = "Listening"
+            apply(localStatus)
+            if status == "Idle" {
+                status = "Listening"
+            }
         } catch {
             stop()
-            audioInput = NativeAudioInput()
             status = error.localizedDescription
         }
     }
 
     func stop() {
-        audioInput.stop()
         audioPlayer?.stop()
         audioPlayer = nil
         soundEffectPlayer?.stop()
         soundEffectPlayer = nil
-        pendingOutputAudio.removeAll(keepingCapacity: false)
-        webSocket?.cancel(with: .goingAway, reason: nil)
-        webSocket = nil
+        if isRunning {
+            Task { [api] in
+                _ = try? await api.stopLocalAudio(reason: "swift_ui_stop")
+            }
+        }
         sessionID = nil
         isRunning = false
         status = "Idle"
     }
 
     func stopSpeaking() {
-        audioPlayer?.stop()
-        audioPlayer = nil
-        pendingOutputAudio.removeAll(keepingCapacity: false)
-        let payload = ["type": "control", "action": "stop_speaking"]
-        if let data = try? JSONSerialization.data(withJSONObject: payload),
-           let text = String(data: data, encoding: .utf8) {
-            webSocket?.send(.string(text)) { _ in }
-        }
+        lastEvent = "local-audio.stop-speaking.unavailable"
     }
 
     func setStatus(_ nextStatus: String) {
@@ -120,56 +101,14 @@ final class NativeVoiceRuntime {
         return true
     }
 
-    private func startAudioInputWithTimeout() async throws -> NativeAudioInputConfig {
-        try await audioInput.start(timeout: 8, onStatus: { [weak self] nextStatus in
-            Task { @MainActor in
-                self?.status = nextStatus
+    func refreshLocalAudioStatus() async {
+        guard let localStatus = await api.localAudioStatus() else {
+            if isRunning {
+                status = "Voice unavailable"
             }
-        }) { [weak self] data, sampleRate, channels in
-            Task { @MainActor in
-                guard let self else { return }
-                self.inputFrames += 1
-                self.sendAudio(data, sampleRate: sampleRate, channels: channels)
-            }
-        }
-    }
-
-    fileprivate func sendAudio(_ data: Data, sampleRate: Int, channels: Int) {
-        guard let webSocket else { return }
-        let payload: [String: Any] = [
-            "type": "audio",
-            "sampleRate": sampleRate,
-            "channels": channels,
-            "audio": data.base64EncodedString()
-        ]
-        guard let body = try? JSONSerialization.data(withJSONObject: payload),
-              let text = String(data: body, encoding: .utf8) else {
             return
         }
-        webSocket.send(.string(text)) { _ in }
-    }
-
-    private func receiveLoop(_ task: URLSessionWebSocketTask) {
-        task.receive { [weak self] result in
-            Task { @MainActor in
-                guard let self, self.webSocket === task else { return }
-                switch result {
-                case .success(.string(let text)):
-                    self.handleMessageText(text)
-                    self.receiveLoop(task)
-                case .success(.data(let data)):
-                    self.lastEvent = "binary \(data.count) bytes"
-                    self.receiveLoop(task)
-                case .failure(let error):
-                    if self.isRunning {
-                        self.status = "Voice disconnected: \(error.localizedDescription)"
-                        self.stop()
-                    }
-                @unknown default:
-                    self.receiveLoop(task)
-                }
-            }
-        }
+        apply(localStatus)
     }
 
     private func handleMessageText(_ text: String) {
@@ -180,18 +119,14 @@ final class NativeVoiceRuntime {
             return
         }
         lastEvent = type
-        if type == "audio" {
-            playAudioEvent(object)
-        } else if type == "transcript.final" || type == "transcript.interim" {
+        if type == "transcript.final" || type == "transcript.interim" {
             handleTranscriptEvent(object, isInterim: type == "transcript.interim")
         } else if let effect = Self.soundEffect(forVoiceEvent: type) {
             playSoundEffect(effect)
         } else if type == "assistant.audio.started" {
             playSoundEffect(.assistantStart)
-            pendingOutputAudio.removeAll(keepingCapacity: true)
             status = "Iris speaking"
         } else if type == "assistant.audio.stopped" {
-            playPendingOutputAudio()
             playSoundEffect(.assistantStop)
             status = "Listening"
         }
@@ -242,37 +177,6 @@ final class NativeVoiceRuntime {
             if liveTranscripts.count > 12 {
                 liveTranscripts = Array(liveTranscripts.prefix(12))
             }
-        }
-    }
-
-    private func playAudioEvent(_ object: [String: Any]) {
-        guard let encoded = object["audio"] as? String,
-              let data = Data(base64Encoded: encoded),
-              let sampleRate = object["sampleRate"] as? Int,
-              let channels = object["channels"] as? Int else {
-            return
-        }
-        pendingOutputSampleRate = sampleRate
-        pendingOutputChannels = max(1, channels)
-        pendingOutputAudio.append(data)
-        outputFrames += 1
-    }
-
-    private func playPendingOutputAudio() {
-        guard !pendingOutputAudio.isEmpty else { return }
-        let wav = Self.wavData(
-            fromPCM16: pendingOutputAudio,
-            sampleRate: pendingOutputSampleRate,
-            channels: pendingOutputChannels
-        )
-        pendingOutputAudio.removeAll(keepingCapacity: true)
-        do {
-            let player = try AVAudioPlayer(data: wav)
-            player.prepareToPlay()
-            player.play()
-            audioPlayer = player
-        } catch {
-            status = "Playback failed: \(error.localizedDescription)"
         }
     }
 
@@ -344,24 +248,33 @@ final class NativeVoiceRuntime {
         wav.append(data)
         return wav
     }
-}
 
-private struct NativeAudioInputConfig: Sendable {
-    var sampleRate: Int
-    var channels: Int
-}
-
-private enum NativeAudioInputError: LocalizedError {
-    case startTimedOut
-    case webCapture(String)
-
-    var errorDescription: String? {
-        switch self {
-        case .startTimedOut:
-            "Microphone start timed out"
-        case .webCapture(let message):
-            message
+    private func apply(_ localStatus: LocalAudioRuntimeStatus) {
+        isRunning = localStatus.running
+        sessionID = localStatus.sessionId ?? sessionID
+        if let last = localStatus.recentEvents?.last {
+            lastEvent = last.type
+            if last.type == "transcript.final" || last.type == "transcript.interim",
+               let text = last.text {
+                handleMessageText(Self.eventJSON(type: last.type, text: text))
+            } else if let effect = Self.soundEffect(forVoiceEvent: last.type) {
+                playSoundEffect(effect)
+            }
         }
+        if let error = localStatus.lastError, !error.isEmpty {
+            status = error
+        } else if localStatus.running {
+            status = "Listening"
+        } else {
+            status = "Idle"
+        }
+    }
+
+    nonisolated private static func eventJSON(type: String, text: String) -> String {
+        let escaped = text
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "{\"type\":\"\(type)\",\"text\":\"\(escaped)\"}"
     }
 }
 
@@ -527,121 +440,6 @@ private enum NativeVoiceSoundEffect {
         guard frames > 0 else { return }
         pcm.append(Data(repeating: 0, count: frames * MemoryLayout<Int16>.size))
     }
-}
-
-@MainActor
-private final class NativeAudioInput: NSObject, WKScriptMessageHandler, WKUIDelegate {
-    let webView: WKWebView
-    private var onAudio: (@Sendable (Data, Int, Int) -> Void)?
-    private var onStatus: (@Sendable (String) -> Void)?
-    private var startContinuation: CheckedContinuation<NativeAudioInputConfig, Error>?
-    private var started = false
-
-    override init() {
-        let contentController = WKUserContentController()
-        let configuration = WKWebViewConfiguration()
-        configuration.userContentController = contentController
-        configuration.allowsAirPlayForMediaPlayback = false
-        configuration.mediaTypesRequiringUserActionForPlayback = []
-        self.webView = WKWebView(frame: .init(x: 0, y: 0, width: 1, height: 1), configuration: configuration)
-        super.init()
-        contentController.add(self, name: "irisAudio")
-        webView.uiDelegate = self
-    }
-
-    func start(
-        timeout: TimeInterval,
-        onStatus: @escaping @Sendable (String) -> Void,
-        onAudio: @escaping @Sendable (Data, Int, Int) -> Void
-    ) async throws -> NativeAudioInputConfig {
-        try await withCheckedThrowingContinuation { continuation in
-            self.onStatus = onStatus
-            self.onAudio = onAudio
-            self.startContinuation = continuation
-            self.started = false
-            onStatus("Starting WebKit microphone")
-            if let url = URL(string: "http://127.0.0.1:4747/debug/web-voice-capture") {
-                webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalAndRemoteCacheData))
-            }
-            Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(timeout))
-                guard let self, !self.started else { return }
-                self.finish(.failure(NativeAudioInputError.startTimedOut))
-            }
-        }
-    }
-
-    func stop() {
-        webView.evaluateJavaScript("window.irisStopCapture && window.irisStopCapture();") { _, _ in }
-        onAudio = nil
-        onStatus = nil
-        started = false
-        finish(.failure(NativeAudioInputError.webCapture("Microphone stopped")))
-    }
-
-    func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard message.name == "irisAudio", let object = message.body as? [String: Any], let type = object["type"] as? String else {
-            return
-        }
-        switch type {
-        case "status":
-            if let text = object["text"] as? String {
-                onStatus?(text)
-            }
-        case "started":
-            started = true
-            onStatus?("Microphone connected")
-            finish(.success(NativeAudioInputConfig(sampleRate: 16_000, channels: 1)))
-        case "audio":
-            guard let encoded = object["audio"] as? String,
-                  let data = Data(base64Encoded: encoded),
-                  !data.isEmpty else {
-                return
-            }
-            onAudio?(data, 16_000, 1)
-        case "error":
-            let text = object["text"] as? String ?? "WebKit microphone failed"
-            onStatus?(text)
-            finish(.failure(NativeAudioInputError.webCapture(text)))
-        default:
-            break
-        }
-    }
-
-    func webView(
-        _ webView: WKWebView,
-        requestMediaCapturePermissionFor origin: WKSecurityOrigin,
-        initiatedByFrame frame: WKFrameInfo,
-        type: WKMediaCaptureType,
-        decisionHandler: @escaping @MainActor @Sendable (WKPermissionDecision) -> Void
-    ) {
-        if type == .microphone || type == .cameraAndMicrophone {
-            decisionHandler(.grant)
-        } else {
-            decisionHandler(.deny)
-        }
-    }
-
-    private func finish(_ result: Result<NativeAudioInputConfig, Error>) {
-        guard let continuation = startContinuation else { return }
-        startContinuation = nil
-        switch result {
-        case .success(let config):
-            continuation.resume(returning: config)
-        case .failure(let error):
-            continuation.resume(throwing: error)
-        }
-    }
-}
-
-struct NativeVoiceCaptureHost: NSViewRepresentable {
-    let view: NSView
-
-    func makeNSView(context: Context) -> NSView {
-        view
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {}
 }
 
 private func nativePCM16Data(from buffer: AVAudioPCMBuffer) -> Data {

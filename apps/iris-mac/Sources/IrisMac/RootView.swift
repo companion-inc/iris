@@ -43,12 +43,6 @@ struct RootView: View {
                     .disabled(appState.isRefreshing)
                 }
             }
-            .background {
-                NativeVoiceCaptureHost(view: appState.voiceRuntime.captureView)
-                    .frame(width: 1, height: 1)
-                    .opacity(0.01)
-                    .accessibilityHidden(true)
-            }
         }
     }
 }

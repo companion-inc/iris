@@ -68,8 +68,6 @@ final class SwiftLocalAPIServer: @unchecked Sendable {
                 return json((await nativeVoiceStatusProvider()).jsonObject)
             }
             return json(["ok": false, "error": "native voice unavailable"], status: 503)
-        case ("GET", "/debug/web-voice-capture"):
-            return html(webVoiceCaptureHTML())
         case ("POST", "/debug/native-voice/play-test"):
             guard let nativeVoicePlaybackTester else {
                 return json(["ok": false, "error": "native voice unavailable"], status: 503)
@@ -1137,107 +1135,6 @@ private func json(_ object: [String: Any], status: Int = 200) -> LocalHTTPRespon
     let reason = status == 200 ? "OK" : "Error"
     let header = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: application/json\r\nContent-Length: \(body.count)\r\nConnection: close\r\n\r\n"
     return LocalHTTPResponse(header: Data(header.utf8), body: body)
-}
-
-private func html(_ text: String, status: Int = 200) -> LocalHTTPResponse {
-    let body = Data(text.utf8)
-    let reason = status == 200 ? "OK" : "Error"
-    let header = "HTTP/1.1 \(status) \(reason)\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.count)\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n"
-    return LocalHTTPResponse(header: Data(header.utf8), body: body)
-}
-
-private func webVoiceCaptureHTML() -> String {
-    """
-    <!doctype html>
-    <html>
-    <head><meta charset="utf-8"><title>Iris Voice Capture</title></head>
-    <body>
-    <script>
-    const post = (payload) => window.webkit.messageHandlers.irisAudio.postMessage(payload);
-    const targetRate = 16000;
-    let stream = null;
-    let audioContext = null;
-    let processor = null;
-    let source = null;
-    let monitor = null;
-
-    function downsampleTo16k(input, sampleRate) {
-      if (sampleRate === targetRate) return input;
-      const ratio = sampleRate / targetRate;
-      const outputLength = Math.floor(input.length / ratio);
-      const output = new Float32Array(outputLength);
-      for (let i = 0; i < outputLength; i += 1) {
-        const start = Math.floor(i * ratio);
-        const end = Math.min(Math.floor((i + 1) * ratio), input.length);
-        let sum = 0;
-        let count = 0;
-        for (let j = start; j < end; j += 1) {
-          sum += input[j];
-          count += 1;
-        }
-        output[i] = count ? sum / count : 0;
-      }
-      return output;
-    }
-
-    function pcm16Base64(float32) {
-      let binary = "";
-      for (let i = 0; i < float32.length; i += 1) {
-        const sample = Math.max(-1, Math.min(1, float32[i]));
-        const value = sample < 0 ? sample * 0x8000 : sample * 0x7fff;
-        const int = value | 0;
-        binary += String.fromCharCode(int & 255, (int >> 8) & 255);
-      }
-      return btoa(binary);
-    }
-
-    window.irisStopCapture = async () => {
-      try { processor && processor.disconnect(); } catch {}
-      try { source && source.disconnect(); } catch {}
-      try { stream && stream.getTracks().forEach((track) => track.stop()); } catch {}
-      try { audioContext && await audioContext.close(); } catch {}
-      stream = null;
-      audioContext = null;
-      processor = null;
-      source = null;
-      monitor = null;
-    };
-
-    async function start() {
-      try {
-        post({ type: "status", text: "Requesting WebKit microphone" });
-        stream = await navigator.mediaDevices.getUserMedia({
-          audio: {
-            echoCancellation: true,
-            noiseSuppression: true,
-            autoGainControl: true
-          }
-        });
-        audioContext = new AudioContext();
-        await audioContext.resume();
-        source = audioContext.createMediaStreamSource(stream);
-        processor = audioContext.createScriptProcessor(4096, 1, 1);
-        monitor = audioContext.createGain();
-        monitor.gain.value = 0;
-        processor.onaudioprocess = (event) => {
-          const input = event.inputBuffer.getChannelData(0);
-          const pcm = downsampleTo16k(input, audioContext.sampleRate);
-          post({ type: "audio", audio: pcm16Base64(pcm) });
-        };
-        source.connect(processor);
-        processor.connect(monitor);
-        monitor.connect(audioContext.destination);
-        post({ type: "started", sampleRate: targetRate, channels: 1 });
-      } catch (error) {
-        post({ type: "error", text: error && error.message ? error.message : String(error) });
-      }
-    }
-
-    start();
-    </script>
-    </body>
-    </html>
-    """
 }
 
 private func sanitizeLocalJSON(_ value: Any) -> Any {

@@ -355,6 +355,19 @@ def _shell_exec_timeout(value: Any) -> float:
     return 5.0
 
 
+def _shell_exec_spoken_result(result: Mapping[str, Any]) -> str | None:
+    if result.get("ok") is not True:
+        error = result.get("stderr") or result.get("error")
+        return f"Command failed: {str(error).strip()}" if error else "Command failed."
+    stdout = result.get("stdout")
+    if not isinstance(stdout, str):
+        return None
+    text = " ".join(stdout.strip().split())
+    if not text or len(text) > 180 or "\n[truncated]" in stdout:
+        return None
+    return text
+
+
 def register_basic_voice_tools(
     llm: Any,
     *,
@@ -538,13 +551,16 @@ def register_basic_voice_tools(
             await _send_tool_result(
                 params,
                 result,
-                properties=FunctionCallResultProperties(run_llm=True),
+                properties=FunctionCallResultProperties(run_llm=False),
                 session=session,
                 events=events,
                 phase="final",
                 started_at=started_at,
                 command_id=command_id,
             )
+            spoken_result = _shell_exec_spoken_result(result)
+            if spoken_result:
+                await _maybe_speak(speak, spoken_result)
         except Exception as error:
             logger.exception(
                 "iris.voice.tool.failed session={} device={} name=shell_exec request_id={}",

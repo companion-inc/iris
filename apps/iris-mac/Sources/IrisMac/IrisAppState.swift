@@ -74,7 +74,10 @@ final class IrisAppState {
             }
         )
         apiServer.setNativeVoiceStatusProvider { [weak voiceRuntime] in
-            await MainActor.run {
+            if let voiceRuntime {
+                await voiceRuntime.refreshLocalAudioStatus()
+            }
+            return await MainActor.run {
                 guard let voiceRuntime else {
                     let permissionStatus = MicrophonePermission.statusDescription
                     return NativeVoiceDebugStatus(
@@ -324,6 +327,7 @@ final class IrisAppState {
     }
 
     func startNativeVoiceIfPossible() async {
+        await voiceRuntime.refreshLocalAudioStatus()
         refreshMicrophonePermission()
         if MicrophonePermission.isNotDetermined {
             voiceRuntime.setStatus("Requesting microphone access")

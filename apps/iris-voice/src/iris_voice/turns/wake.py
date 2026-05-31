@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import time
+from collections.abc import Awaitable, Callable
 
 from loguru import logger
 from pipecat.frames.frames import InterimTranscriptionFrame, TranscriptionFrame
@@ -146,11 +147,13 @@ class IrisWakePhraseUserTurnStartStrategy(WakePhraseUserTurnStartStrategy):
         self,
         *args,
         echo_guard: PlaybackEchoGuard | None = None,
+        on_wake_only: Callable[[], Awaitable[None]] | None = None,
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self._stop_reason = "timeout"
         self._echo_guard = echo_guard
+        self._on_wake_only = on_wake_only
         self._wake_residue_deadline = 0.0
 
     def mark_followup_expected(self, *, reason: str) -> None:
@@ -180,6 +183,13 @@ class IrisWakePhraseUserTurnStartStrategy(WakePhraseUserTurnStartStrategy):
                 self._transition_to_awake("iris")
                 self._wake_residue_deadline = time.monotonic() + 5.0
                 if is_wake_only_transcription(frame.text):
+                    logger.info(
+                        "iris.voice.wake.only_detected final=false text={!r} has_ack_callback={}",
+                        frame.text.strip(),
+                        self._on_wake_only is not None,
+                    )
+                    if self._on_wake_only:
+                        await self._on_wake_only()
                     await self.trigger_reset_aggregation()
                     return ProcessFrameResult.STOP
                 await self.trigger_user_turn_started()
@@ -191,6 +201,13 @@ class IrisWakePhraseUserTurnStartStrategy(WakePhraseUserTurnStartStrategy):
                 self._transition_to_awake("iris")
                 self._wake_residue_deadline = time.monotonic() + 5.0
                 if is_wake_only_transcription(frame.text):
+                    logger.info(
+                        "iris.voice.wake.only_detected final=true text={!r} has_ack_callback={}",
+                        frame.text.strip(),
+                        self._on_wake_only is not None,
+                    )
+                    if self._on_wake_only:
+                        await self._on_wake_only()
                     await self.trigger_reset_aggregation()
                     return ProcessFrameResult.STOP
                 await self.trigger_user_turn_started()

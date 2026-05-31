@@ -86,6 +86,22 @@ struct VoiceSessionStart: Decodable, Equatable {
     var expiresAt: Date?
 }
 
+struct LocalAudioRuntimeStatus: Decodable, Equatable {
+    var ok: Bool
+    var running: Bool
+    var sessionId: String?
+    var uptimeSeconds: Int?
+    var lastError: String?
+    var recentEvents: [LocalAudioRuntimeEvent]?
+}
+
+struct LocalAudioRuntimeEvent: Decodable, Equatable {
+    var type: String
+    var text: String?
+    var reason: String?
+    var at: Double?
+}
+
 struct NativeVoiceDebugStatus: Sendable {
     var ok: Bool
     var running: Bool

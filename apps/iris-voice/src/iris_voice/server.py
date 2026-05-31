@@ -5,6 +5,7 @@ import asyncio
 import base64
 import json
 import os
+from urllib.parse import parse_qs, urlparse
 from typing import TYPE_CHECKING
 
 
@@ -28,6 +29,7 @@ from loguru import logger
 from pipecat.transports.base_transport import TransportParams
 
 from .agent_completion_events import AgentCompletionSubscriber
+from .local_audio import LocalAudioRuntimeManager
 from .runtime_events import RuntimeEvents
 from .session import verify_session_token
 from .turns.barge_in import BARGE_IN_VAD_SAMPLE_RATE
@@ -39,6 +41,7 @@ if TYPE_CHECKING:
 
 def create_app() -> FastAPI:
     app = FastAPI(title="Iris Voice")
+    local_audio = LocalAudioRuntimeManager()
 
     @app.get("/health")
     async def health():
@@ -47,6 +50,27 @@ def create_app() -> FastAPI:
     @app.get("/ping")
     async def ping():
         return {"status": "healthy"}
+
+    @app.get("/local-audio/status")
+    async def local_audio_status():
+        return local_audio.status()
+
+    @app.post("/local-audio/start")
+    async def local_audio_start(payload: dict[str, str]):
+        token = payload.get("token") or _token_from_voice_url(payload.get("voiceUrl") or "")
+        if not token:
+            return {"ok": False, "error": "missing voice session token"}
+        try:
+            session = verify_session_token(token)
+        except Exception as error:
+            logger.warning("iris.voice.local_audio.session_rejected error={}", error)
+            return {"ok": False, "error": "invalid voice session token"}
+        return await local_audio.start(session)
+
+    @app.post("/local-audio/stop")
+    async def local_audio_stop(payload: dict[str, str] | None = None):
+        reason = (payload or {}).get("reason") or "stopped"
+        return await local_audio.stop(reason=reason)
 
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
@@ -233,6 +257,16 @@ def create_app() -> FastAPI:
             logger.info("iris.voice.disconnected session={}", session.session_id)
 
     return app
+
+
+def _token_from_voice_url(voice_url: str) -> str | None:
+    if not voice_url:
+        return None
+    query = parse_qs(urlparse(voice_url).query)
+    values = query.get("token")
+    if not values:
+        return None
+    return values[0]
 
 
 def main():
