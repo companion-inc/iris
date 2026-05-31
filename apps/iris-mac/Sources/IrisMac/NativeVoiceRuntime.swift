@@ -356,17 +356,17 @@ private enum NativeVoiceSoundEffect {
     var volume: Float {
         switch self {
         case .wake:
-            return 0.035
+            return 0.12
         case .speaker:
-            return 0.03
+            return 0.09
         case .sound:
-            return 0.018
+            return 0.07
         case .tool, .done:
-            return 0.026
+            return 0.09
         case .error:
-            return 0.028
+            return 0.1
         case .assistantStart, .assistantStop:
-            return 0.024
+            return 0.08
         }
     }
 

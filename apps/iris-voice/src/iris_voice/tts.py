@@ -7,9 +7,9 @@ from pipecat.services.deepgram.tts import DeepgramTTSService, DeepgramTTSSetting
 from pipecat.services.google.tts import GeminiTTSService, GeminiTTSSettings
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.tts_service import TTSService
-from pipecat.services.xai.tts import XAITTSService
 
 from .env import optional_int_env
+from .xai_tts import XAITTSService
 
 
 def _first_env(*names: str) -> str | None:
@@ -41,11 +41,11 @@ def build_tts_service(*, deepgram_api_key: str, sample_rate: int) -> tuple[TTSSe
 
         voice_id = os.getenv("IRIS_XAI_TTS_VOICE_ID", "eve")
         language = os.getenv("IRIS_XAI_TTS_LANGUAGE", "en")
-        base_url = os.getenv("IRIS_XAI_TTS_BASE_URL", "wss://api.x.ai/v1/tts")
+        base_url = os.getenv("IRIS_XAI_TTS_BASE_URL", "https://api.x.ai/v1")
         optimize_streaming_latency = optional_int_env("IRIS_XAI_TTS_OPTIMIZE_STREAMING_LATENCY", 0)
         codec = os.getenv("IRIS_XAI_TTS_CODEC", "pcm")
         logger.info(
-            "iris.voice.tts_config provider=xai mode=websocket voice_id={} sample_rate={} language={} codec={} latency_opt={}",
+            "iris.voice.tts_config provider=xai mode=http_pcm voice_id={} sample_rate={} language={} codec={} latency_opt={}",
             voice_id,
             sample_rate,
             language,
@@ -56,13 +56,10 @@ def build_tts_service(*, deepgram_api_key: str, sample_rate: int) -> tuple[TTSSe
             XAITTSService(
                 api_key=xai_api_key,
                 base_url=base_url,
+                voice_id=voice_id,
+                language=language,
                 sample_rate=sample_rate,
-                codec=codec,
-                settings=XAITTSService.Settings(
-                    voice=voice_id,
-                    language=language,
-                    extra={"optimize_streaming_latency": optimize_streaming_latency},
-                ),
+                optimize_streaming_latency=optimize_streaming_latency,
             ),
             "grok-tts",
         )

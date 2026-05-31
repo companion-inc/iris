@@ -6,7 +6,7 @@ from collections import deque
 from typing import Any
 
 from loguru import logger
-from pipecat.frames.frames import Frame, OutputAudioRawFrame
+from pipecat.frames.frames import Frame, OutputAudioRawFrame, TTSStartedFrame, TTSStoppedFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -25,12 +25,14 @@ class LocalRuntimeWebSocket:
 
 
 class LocalAudioRuntimeTransport:
-    def __init__(self, *, sample_rate: int, channels: int):
+    def __init__(self, *, sample_rate: int, channels: int, events: RuntimeEvents):
         from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
 
         self._playback_active = False
         self._playback_active_until = 0.0
+        self._events = events
         self._output: Pipeline | None = None
+        self._output_audio_frames = 0
         self._transport = LocalAudioTransport(
             params=LocalAudioTransportParams(
                 audio_in_enabled=True,
@@ -50,8 +52,10 @@ class LocalAudioRuntimeTransport:
             self._output = Pipeline(
                 [
                     LocalPlaybackStateTracker(
+                        events=self._events,
                         on_started=self._mark_playback_started,
                         on_stopped=self._mark_playback_stopped,
+                        on_audio_frame=self._mark_audio_frame,
                     ),
                     self._transport.output(),
                 ]
@@ -70,28 +74,46 @@ class LocalAudioRuntimeTransport:
     def _mark_playback_started(self) -> None:
         if not self._playback_active:
             logger.info("iris.voice.local_audio.playback_started")
+            self._events.emit({"type": "assistant.audio.started"})
         self._playback_active = True
         self._playback_active_until = time.monotonic() + LOCAL_PLAYBACK_ECHO_TAIL_SECONDS
 
     def _mark_playback_stopped(self) -> None:
         if self._playback_active:
             logger.info("iris.voice.local_audio.playback_stopped")
+            self._events.emit({"type": "assistant.audio.stopped", "reason": "completed"})
         self._playback_active = False
         self._playback_active_until = time.monotonic() + LOCAL_PLAYBACK_ECHO_TAIL_SECONDS
 
+    def _mark_audio_frame(self, frame: OutputAudioRawFrame) -> None:
+        self._output_audio_frames += 1
+        if self._output_audio_frames == 1 or self._output_audio_frames % 50 == 0:
+            logger.info(
+                "iris.voice.local_audio.output_frame frames={} bytes={} sample_rate={} channels={}",
+                self._output_audio_frames,
+                len(frame.audio),
+                frame.sample_rate,
+                frame.num_channels,
+            )
+
 
 class LocalPlaybackStateTracker(FrameProcessor):
-    def __init__(self, *, on_started, on_stopped):
+    def __init__(self, *, events: RuntimeEvents, on_started, on_stopped, on_audio_frame):
         super().__init__()
+        self._events = events
         self._on_started = on_started
         self._on_stopped = on_stopped
+        self._on_audio_frame = on_audio_frame
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         if direction == FrameDirection.DOWNSTREAM:
             name = frame.__class__.__name__
-            if name == "BotStartedSpeakingFrame" or isinstance(frame, OutputAudioRawFrame):
+            if name == "BotStartedSpeakingFrame" or isinstance(frame, TTSStartedFrame):
                 self._on_started()
-            elif name == "BotStoppedSpeakingFrame":
+            elif isinstance(frame, OutputAudioRawFrame):
+                self._on_started()
+                self._on_audio_frame(frame)
+            elif name == "BotStoppedSpeakingFrame" or isinstance(frame, TTSStoppedFrame):
                 self._on_stopped()
         await super().process_frame(frame, direction)
 
@@ -131,7 +153,11 @@ class LocalAudioRuntimeManager:
         self._started_at = time.time()
         self._last_error = None
         self._recent_events.clear()
-        transport = LocalAudioRuntimeTransport(sample_rate=session.sample_rate, channels=session.channels)
+        transport = LocalAudioRuntimeTransport(
+            sample_rate=session.sample_rate,
+            channels=session.channels,
+            events=self._events,
+        )
 
         def on_task_ready(task: PipelineTask) -> None:
             self._pipeline_task = task
