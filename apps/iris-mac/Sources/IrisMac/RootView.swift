@@ -61,25 +61,28 @@ private struct Sidebar: View {
     var openUpdateDownload: () -> Void
 
     var body: some View {
-        List(IrisTab.allCases, selection: $selectedTab) { tab in
-            Label(tab.rawValue, systemImage: tab.symbol)
-                .tag(tab)
-        }
-        .safeAreaInset(edge: .top) {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("Iris")
-                    .font(.title3.weight(.semibold))
-                Text("Local Mac")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        VStack(alignment: .leading, spacing: 0) {
+            sidebarHeader
+            List(IrisTab.allCases, selection: $selectedTab) { tab in
+                Label(tab.rawValue, systemImage: tab.symbol)
+                    .tag(tab)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 14)
-            .padding(.vertical, 12)
-        }
-        .safeAreaInset(edge: .bottom) {
+            .scrollContentBackground(.hidden)
             updateFooter
         }
+    }
+
+    private var sidebarHeader: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            Text("Iris")
+                .font(.title3.weight(.semibold))
+            Text("Local Mac")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
     }
 
     private var updateFooter: some View {
