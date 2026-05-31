@@ -6,7 +6,17 @@ struct RootView: View {
     var body: some View {
         @Bindable var appState = appState
         NavigationSplitView {
-            Sidebar(selectedTab: $appState.selectedTab)
+            Sidebar(
+                selectedTab: $appState.selectedTab,
+                updateStatus: appState.updateStatus,
+                isCheckingForUpdates: appState.isCheckingForUpdates,
+                checkForUpdates: {
+                    await appState.checkForUpdates()
+                },
+                openUpdateDownload: {
+                    appState.openUpdateDownload()
+                }
+            )
                 .navigationSplitViewColumnWidth(min: 180, ideal: 210, max: 240)
         } detail: {
             Group {
@@ -45,6 +55,10 @@ struct RootView: View {
 
 private struct Sidebar: View {
     @Binding var selectedTab: IrisTab
+    var updateStatus: AppUpdateStatus
+    var isCheckingForUpdates: Bool
+    var checkForUpdates: () async -> Void
+    var openUpdateDownload: () -> Void
 
     var body: some View {
         List(IrisTab.allCases, selection: $selectedTab) { tab in
@@ -63,5 +77,41 @@ private struct Sidebar: View {
             .padding(.horizontal, 14)
             .padding(.vertical, 12)
         }
+        .safeAreaInset(edge: .bottom) {
+            updateFooter
+        }
+    }
+
+    private var updateFooter: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if updateStatus.updateAvailable {
+                Button {
+                    openUpdateDownload()
+                } label: {
+                    Label("Update available", systemImage: "arrow.down.circle")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            } else {
+                HStack(spacing: 6) {
+                    Image(systemName: isCheckingForUpdates ? "arrow.triangle.2.circlepath" : "checkmark.circle")
+                    Text(isCheckingForUpdates ? "Checking updates" : "Iris up to date")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            }
+            Button("Check for updates") {
+                Task {
+                    await checkForUpdates()
+                }
+            }
+            .font(.caption)
+            .disabled(isCheckingForUpdates)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 14)
+        .padding(.vertical, 12)
+        .background(.regularMaterial)
     }
 }
