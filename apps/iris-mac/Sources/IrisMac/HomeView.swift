@@ -38,6 +38,16 @@ struct HomeView: View {
             StatusPill(title: "API", running: appState.apiHealth.isRunning)
             StatusPill(title: "Voice", running: appState.voiceHealth.isRunning)
             StatusPill(title: "Codex", running: appState.bridgeHealth.isRunning)
+            if appState.updateStatus.updateAvailable {
+                Button {
+                    appState.openUpdateDownload()
+                } label: {
+                    Label("Update", systemImage: "arrow.down.circle")
+                        .font(.caption.weight(.medium))
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.small)
+            }
         }
     }
 

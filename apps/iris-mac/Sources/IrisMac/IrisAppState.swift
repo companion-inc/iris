@@ -1,8 +1,12 @@
 import Foundation
+import AppKit
 
 @MainActor
 @Observable
 final class IrisAppState {
+    static let releaseAPIURL = URL(string: "https://api.github.com/repos/companion-inc/iris/releases/latest")!
+    static let releaseDownloadsURL = URL(string: "https://github.com/companion-inc/iris/releases/latest")!
+
     var selectedTab: IrisTab = .home
     var apiHealth = HealthStatus(ok: false, service: "iris-api")
     var voiceHealth = HealthStatus(ok: false, service: "iris-voice")
@@ -18,6 +22,8 @@ final class IrisAppState {
     var microphoneAllowed = false
     var microphoneStatus = "Unknown"
     var settingsStatus = "Native defaults active"
+    var updateStatus = AppUpdateStatus(currentTag: IrisAppState.currentReleaseTag)
+    var isCheckingForUpdates = false
     var deepgramAPIKeyConfigured = false
     var geminiAPIKeyConfigured = false
     var xaiAPIKeyConfigured = false
@@ -141,6 +147,13 @@ final class IrisAppState {
             try? await Task.sleep(for: .seconds(2))
             await self?.startNativeVoiceWhenReady()
         }
+        Task { [weak self] in
+            await self?.checkForUpdates()
+        }
+    }
+
+    static var currentReleaseTag: String {
+        Bundle.main.object(forInfoDictionaryKey: "IRISReleaseTag") as? String ?? "development"
     }
 
     var workspacePath: String {
@@ -171,6 +184,9 @@ final class IrisAppState {
         refreshLaunchAtLogin()
         refreshMicrophonePermission()
         refreshSecretStatus()
+        if updateStatus.checkedAt == nil {
+            await checkForUpdates()
+        }
         await refresh()
     }
 
@@ -195,6 +211,44 @@ final class IrisAppState {
         refreshMicrophonePermission()
         refreshSecretStatus()
         isRefreshing = false
+    }
+
+    func checkForUpdates() async {
+        isCheckingForUpdates = true
+        defer { isCheckingForUpdates = false }
+        do {
+            var request = URLRequest(url: Self.releaseAPIURL)
+            request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+            request.setValue("IrisMac/0.1", forHTTPHeaderField: "User-Agent")
+            let (data, response) = try await URLSession.shared.data(for: request)
+            if let httpResponse = response as? HTTPURLResponse, !(200..<300).contains(httpResponse.statusCode) {
+                throw URLError(.badServerResponse)
+            }
+            let release = try JSONDecoder().decode(GitHubRelease.self, from: data)
+            let downloadURL = release.assets.first(where: { $0.name == "Iris-macOS-arm64.zip" })?.browserDownloadURL
+            updateStatus = AppUpdateStatus(
+                currentTag: Self.currentReleaseTag,
+                latestTag: release.tagName,
+                releaseURL: release.htmlURL,
+                downloadURL: downloadURL,
+                checkedAt: Date(),
+                error: nil
+            )
+        } catch {
+            updateStatus = AppUpdateStatus(
+                currentTag: Self.currentReleaseTag,
+                latestTag: updateStatus.latestTag,
+                releaseURL: updateStatus.releaseURL,
+                downloadURL: updateStatus.downloadURL,
+                checkedAt: Date(),
+                error: error.localizedDescription
+            )
+        }
+    }
+
+    func openUpdateDownload() {
+        let url = updateStatus.downloadURL ?? updateStatus.releaseURL ?? Self.releaseDownloadsURL
+        NSWorkspace.shared.open(url)
     }
 
     func clearHome() {

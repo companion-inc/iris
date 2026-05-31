@@ -42,6 +42,25 @@ struct SettingsView: View {
                 }
             }
 
+            SectionBlock(title: "Updates") {
+                VStack(alignment: .leading, spacing: 12) {
+                    SettingsRow(title: "Current", value: appState.updateStatus.currentTag)
+                    SettingsRow(title: "Latest", value: appState.updateStatus.latestTag ?? "Not checked")
+                    SettingsRow(title: "Status", value: appState.updateStatus.displayText)
+                    HStack {
+                        Button(appState.isCheckingForUpdates ? "Checking..." : "Check for updates") {
+                            Task {
+                                await appState.checkForUpdates()
+                            }
+                        }
+                        .disabled(appState.isCheckingForUpdates)
+                        Button(appState.updateStatus.updateAvailable ? "Download update" : "Open releases") {
+                            appState.openUpdateDownload()
+                        }
+                    }
+                }
+            }
+
             SectionBlock(title: "Codex") {
                 VStack(alignment: .leading, spacing: 12) {
                     Text("Workspace")

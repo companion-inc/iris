@@ -11,6 +11,52 @@ struct HealthStatus: Decodable, Equatable {
     }
 }
 
+struct AppUpdateStatus: Equatable {
+    var currentTag: String
+    var latestTag: String?
+    var releaseURL: URL?
+    var downloadURL: URL?
+    var checkedAt: Date?
+    var error: String?
+
+    var updateAvailable: Bool {
+        guard let latestTag, !latestTag.isEmpty else { return false }
+        return latestTag != currentTag
+    }
+
+    var displayText: String {
+        if let error {
+            return "Update check failed: \(error)"
+        }
+        guard let latestTag else {
+            return "Not checked"
+        }
+        return updateAvailable ? "Update available: \(latestTag)" : "Up to date"
+    }
+}
+
+struct GitHubRelease: Decodable {
+    var tagName: String
+    var htmlURL: URL
+    var assets: [GitHubReleaseAsset]
+
+    enum CodingKeys: String, CodingKey {
+        case tagName = "tag_name"
+        case htmlURL = "html_url"
+        case assets
+    }
+}
+
+struct GitHubReleaseAsset: Decodable {
+    var name: String
+    var browserDownloadURL: URL
+
+    enum CodingKeys: String, CodingKey {
+        case name
+        case browserDownloadURL = "browser_download_url"
+    }
+}
+
 struct TranscriptSegment: Decodable, Identifiable, Equatable {
     var id: String
     var text: String
