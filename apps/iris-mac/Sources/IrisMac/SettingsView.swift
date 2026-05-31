@@ -206,6 +206,15 @@ private struct ProviderKeysSheet: View {
                     .labelsHidden()
                 }
                 GridRow {
+                    Text("Language")
+                        .foregroundStyle(.secondary)
+                    Picker("Language", selection: Bindable(appState.settings).sttLanguage) {
+                        Text("English").tag("en")
+                        Text("Multilingual").tag("multi")
+                    }
+                    .labelsHidden()
+                }
+                GridRow {
                     Text("LLM")
                         .foregroundStyle(.secondary)
                     Picker("LLM", selection: Bindable(appState.settings).llmProvider) {

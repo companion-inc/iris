@@ -38,6 +38,12 @@ final class NativeSettings {
         }
     }
 
+    var sttLanguage: String {
+        didSet {
+            defaults.set(sttLanguage, forKey: Keys.sttLanguage)
+        }
+    }
+
     var llmProvider: String {
         didSet {
             defaults.set(llmProvider, forKey: Keys.llmProvider)
@@ -63,6 +69,7 @@ final class NativeSettings {
         voiceURL = defaults.string(forKey: Keys.voiceURL) ?? Self.defaultVoiceURL
         bridgeURL = defaults.string(forKey: Keys.bridgeURL) ?? Self.defaultBridgeURL
         sttProvider = defaults.string(forKey: Keys.sttProvider) ?? "deepgram"
+        sttLanguage = defaults.string(forKey: Keys.sttLanguage) ?? "en"
         llmProvider = defaults.string(forKey: Keys.llmProvider) ?? "gemini"
         ttsProvider = defaults.string(forKey: Keys.ttsProvider) ?? "xai"
     }
@@ -73,6 +80,7 @@ final class NativeSettings {
         voiceURL = Self.defaultVoiceURL
         bridgeURL = Self.defaultBridgeURL
         sttProvider = "deepgram"
+        sttLanguage = "en"
         llmProvider = "gemini"
         ttsProvider = "xai"
     }
@@ -113,6 +121,7 @@ final class NativeSettings {
         static let voiceURL = "voiceURL"
         static let bridgeURL = "bridgeURL"
         static let sttProvider = "sttProvider"
+        static let sttLanguage = "sttLanguage"
         static let llmProvider = "llmProvider"
         static let ttsProvider = "ttsProvider"
     }

@@ -18,6 +18,10 @@ The correct full self-update system for a directly distributed macOS app is Spar
 
 Until Iris has that signed updater pipeline, the app should open the GitHub release download rather than silently replacing itself.
 
+## Voice Runtime Decision
+
+Keep the local Mac voice default on Deepgram Nova-3 English (`IRIS_STT_LANGUAGE=en`) because the working legacy desktop sidecar used English, while the Swift path had drifted to `multi`. Expose multilingual as an explicit Settings choice instead of making it the silent default.
+
 ## Sources
 
 - GitHub REST API releases: `https://docs.github.com/en/rest/releases`

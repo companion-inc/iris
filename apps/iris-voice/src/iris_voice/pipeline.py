@@ -111,7 +111,7 @@ def build_stt_service(
                 smart_format=True,
                 interim_results=True,
                 keyterm=stt_keyterms,
-                endpointing=100,
+                endpointing=int(os.getenv("IRIS_STT_ENDPOINTING_MS", "500")),
                 utterance_end_ms=1000,
                 diarize=True,
                 profanity_filter=False,
@@ -385,7 +385,7 @@ async def run_voice_runtime(
         session_config.get("soundRecognition")
     )
     stt_model = os.getenv("IRIS_STT_MODEL", "nova-3")
-    stt_language = os.getenv("IRIS_STT_LANGUAGE", "multi")
+    stt_language = os.getenv("IRIS_STT_LANGUAGE", "en")
     stt_keyterms = merge_keyterms(
         BUILTIN_STT_KEYTERMS,
         optional_list_env("IRIS_STT_KEYTERMS", []),

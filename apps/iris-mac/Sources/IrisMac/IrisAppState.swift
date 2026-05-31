@@ -409,6 +409,7 @@ final class IrisAppState {
     private func voiceEnvironment() -> [String: String] {
         var environment = secrets.environment()
         environment["IRIS_STT_PROVIDER"] = settings.sttProvider
+        environment["IRIS_STT_LANGUAGE"] = settings.sttLanguage
         environment["IRIS_LLM_PROVIDER"] = settings.llmProvider
         environment["IRIS_TTS_PROVIDER"] = settings.ttsProvider
         return environment
