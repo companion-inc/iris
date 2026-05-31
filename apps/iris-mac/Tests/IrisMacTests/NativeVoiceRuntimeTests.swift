@@ -38,4 +38,25 @@ final class NativeVoiceRuntimeTests: XCTestCase {
         XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "tool.failed"), "error")
         XCTAssertNil(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "transcript.final"))
     }
+
+    @MainActor
+    func testLocalAudioStatusProcessesTranscriptBeforeLaterWakeStopEvent() {
+        let runtime = NativeVoiceRuntime(api: IrisAPI())
+        runtime.applyLocalAudioStatus(LocalAudioRuntimeStatus(
+            ok: true,
+            running: true,
+            sessionId: "voice_test",
+            uptimeSeconds: 1,
+            lastError: nil,
+            recentEvents: [
+                LocalAudioRuntimeEvent(type: "ready", text: nil, reason: nil, at: 1),
+                LocalAudioRuntimeEvent(type: "transcript.final", text: "Iris can you hear me", reason: nil, at: 2),
+                LocalAudioRuntimeEvent(type: "wake.stopped", text: nil, reason: "timeout", at: 3)
+            ]
+        ))
+
+        XCTAssertEqual(runtime.liveTranscripts.map(\.text), ["Iris can you hear me"])
+        XCTAssertEqual(runtime.lastEvent, "wake.stopped")
+        XCTAssertEqual(runtime.status, "Listening")
+    }
 }

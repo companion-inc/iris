@@ -16,6 +16,7 @@ final class NativeVoiceRuntime {
     fileprivate(set) var inputFrames = 0
     private(set) var outputFrames = 0
     private(set) var liveTranscripts: [TranscriptSegment] = []
+    private var seenLocalAudioEventKeys = Set<String>()
 
     init(api: IrisAPI) {
         self.api = api
@@ -29,7 +30,7 @@ final class NativeVoiceRuntime {
             sessionID = voiceSession.sessionId
             let localStatus = try await api.startLocalAudio(voiceUrl: voiceSession.voiceUrl)
             isRunning = true
-            apply(localStatus)
+            applyLocalAudioStatus(localStatus)
             if status == "Idle" {
                 status = "Listening"
             }
@@ -52,6 +53,7 @@ final class NativeVoiceRuntime {
         sessionID = nil
         isRunning = false
         status = "Idle"
+        seenLocalAudioEventKeys.removeAll()
     }
 
     func stopSpeaking() {
@@ -108,7 +110,7 @@ final class NativeVoiceRuntime {
             }
             return
         }
-        apply(localStatus)
+        applyLocalAudioStatus(localStatus)
     }
 
     private func handleMessageText(_ text: String) {
@@ -157,14 +159,20 @@ final class NativeVoiceRuntime {
 
     private func handleTranscriptEvent(_ object: [String: Any], isInterim: Bool) {
         guard let text = object["text"] as? String else { return }
+        let timestamp = object["at"] as? Double
+        let speakerName = object["speaker"] as? String
+        handleTranscriptText(text, isInterim: isInterim, speakerName: speakerName, timestamp: timestamp)
+    }
+
+    private func handleTranscriptText(_ text: String, isInterim: Bool, speakerName: String?, timestamp: Double?) {
         let normalized = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else { return }
-        let speakerName = object["speaker"] as? String
-        let idSeed = "\(sessionID ?? "voice"):\(isInterim ? "interim" : "final"):\(inputFrames):\(normalized)"
+        let startedAt = timestamp.map { Date(timeIntervalSince1970: $0) } ?? Date()
+        let idSeed = "\(sessionID ?? "voice"):\(isInterim ? "interim" : "final"):\(timestamp ?? startedAt.timeIntervalSince1970):\(normalized)"
         let segment = TranscriptSegment(
             id: isInterim ? "live-interim-\(sessionID ?? "voice")" : "live-\(abs(idSeed.hashValue))",
             text: normalized,
-            startedAt: Date(),
+            startedAt: startedAt,
             speakerName: speakerName,
             emotionLabel: nil
         )
@@ -249,17 +257,17 @@ final class NativeVoiceRuntime {
         return wav
     }
 
-    private func apply(_ localStatus: LocalAudioRuntimeStatus) {
+    func applyLocalAudioStatus(_ localStatus: LocalAudioRuntimeStatus) {
         isRunning = localStatus.running
         sessionID = localStatus.sessionId ?? sessionID
-        if let last = localStatus.recentEvents?.last {
-            lastEvent = last.type
-            if last.type == "transcript.final" || last.type == "transcript.interim",
-               let text = last.text {
-                handleMessageText(Self.eventJSON(type: last.type, text: text))
-            } else if let effect = Self.soundEffect(forVoiceEvent: last.type) {
-                playSoundEffect(effect)
-            }
+        for event in localStatus.recentEvents ?? [] {
+            let key = localAudioEventKey(event)
+            guard !seenLocalAudioEventKeys.contains(key) else { continue }
+            seenLocalAudioEventKeys.insert(key)
+            handleLocalAudioEvent(event)
+        }
+        if seenLocalAudioEventKeys.count > 200 {
+            seenLocalAudioEventKeys = Set(seenLocalAudioEventKeys.suffix(100))
         }
         if let error = localStatus.lastError, !error.isEmpty {
             status = error
@@ -270,11 +278,32 @@ final class NativeVoiceRuntime {
         }
     }
 
-    nonisolated private static func eventJSON(type: String, text: String) -> String {
-        let escaped = text
-            .replacingOccurrences(of: "\\", with: "\\\\")
-            .replacingOccurrences(of: "\"", with: "\\\"")
-        return "{\"type\":\"\(type)\",\"text\":\"\(escaped)\"}"
+    private func handleLocalAudioEvent(_ event: LocalAudioRuntimeEvent) {
+        lastEvent = event.type
+        switch event.type {
+        case "transcript.final", "transcript.interim":
+            guard let text = event.text else { return }
+            handleTranscriptText(
+                text,
+                isInterim: event.type == "transcript.interim",
+                speakerName: nil,
+                timestamp: event.at
+            )
+        case "assistant.audio.started":
+            playSoundEffect(.assistantStart)
+            status = "Iris speaking"
+        case "assistant.audio.stopped":
+            playSoundEffect(.assistantStop)
+            status = "Listening"
+        default:
+            if let effect = Self.soundEffect(forVoiceEvent: event.type) {
+                playSoundEffect(effect)
+            }
+        }
+    }
+
+    private func localAudioEventKey(_ event: LocalAudioRuntimeEvent) -> String {
+        "\(event.at ?? 0):\(event.type):\(event.text ?? ""):\(event.reason ?? "")"
     }
 }
 

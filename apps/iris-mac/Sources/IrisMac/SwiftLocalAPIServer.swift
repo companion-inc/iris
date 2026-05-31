@@ -998,10 +998,11 @@ final class SwiftLocalAPIServer: @unchecked Sendable {
 
     private func openDatabase() -> OpaquePointer? {
         var database: OpaquePointer?
-        guard sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK else {
+        guard sqlite3_open_v2(databaseURL.path, &database, SQLITE_OPEN_READWRITE, nil) == SQLITE_OK, let database else {
             if let database { sqlite3_close(database) }
             return nil
         }
+        configureSQLiteConnection(database)
         return database
     }
 
@@ -1012,6 +1013,7 @@ final class SwiftLocalAPIServer: @unchecked Sendable {
             throw NSError(domain: "IrisSQLite", code: 1, userInfo: [NSLocalizedDescriptionKey: "Could not open local database"])
         }
         defer { sqlite3_close(database) }
+        configureSQLiteConnection(database)
         for statement in localSchemaStatements {
             guard sqlite3_exec(database, statement, nil, nil, nil) == SQLITE_OK else {
                 throw NSError(domain: "IrisSQLite", code: 2, userInfo: [NSLocalizedDescriptionKey: databaseError(database)])
@@ -1044,6 +1046,9 @@ private let localSchemaStatements = [
     "create table if not exists transcript_segments (id text primary key, organization_id text not null, user_id text not null, device_id text, session_id text not null, source text not null, text text not null, words text, is_interim integer not null default 0, speaker_label text, speaker_user_id text, speaker_name text, speaker_confidence real, emotion_label text, emotion_confidence real, emotion_model text, confidence real, started_at text not null, ended_at text, created_at text not null)",
     "create table if not exists summaries (id text primary key, organization_id text not null, user_id text not null, type text not null, title text not null, summary text not null, important_points text not null default '[]', action_items text not null default '[]', source_segment_ids text not null default '[]', period_start text not null, period_end text not null, status text not null, generated_at text, created_at text not null, updated_at text not null, unique (organization_id, user_id, type, period_start, period_end))",
     "create virtual table if not exists transcript_segments_fts using fts5(text, content='transcript_segments', content_rowid='rowid')",
+    "create trigger if not exists transcript_segments_fts_ai after insert on transcript_segments begin insert into transcript_segments_fts(rowid, text) values (new.rowid, new.text); end",
+    "create trigger if not exists transcript_segments_fts_ad after delete on transcript_segments begin insert into transcript_segments_fts(transcript_segments_fts, rowid, text) values ('delete', old.rowid, old.text); end",
+    "create trigger if not exists transcript_segments_fts_au after update on transcript_segments begin insert into transcript_segments_fts(transcript_segments_fts, rowid, text) values ('delete', old.rowid, old.text); insert into transcript_segments_fts(rowid, text) values (new.rowid, new.text); end",
     "create table if not exists event_tokens (id text primary key, token_hash text not null unique, user_id text not null, expires_at text not null, created_at text not null)",
     "create table if not exists audit_events (id text primary key, organization_id text not null, user_id text, device_id text, type text not null, data text not null, created_at text not null)",
     "create index if not exists transcript_segments_session_idx on transcript_segments (session_id, started_at)",
@@ -1648,6 +1653,12 @@ private func updateDeviceSettings(database: OpaquePointer, deviceID: String, set
 }
 
 private let SQLITE_TRANSIENT = unsafeBitCast(-1, to: sqlite3_destructor_type.self)
+
+private func configureSQLiteConnection(_ database: OpaquePointer) {
+    sqlite3_busy_timeout(database, 2000)
+    sqlite3_exec(database, "pragma journal_mode=WAL", nil, nil, nil)
+    sqlite3_exec(database, "pragma synchronous=NORMAL", nil, nil, nil)
+}
 
 private func parseQuery(_ queryString: String) -> [String: String] {
     var components = URLComponents()

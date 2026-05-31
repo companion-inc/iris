@@ -58,8 +58,11 @@ class LocalAudioRuntimeTransport:
             )
         return self._output
 
-    def close(self) -> None:
-        return None
+    async def close(self) -> None:
+        for processor in (self._transport._input, self._transport._output):
+            if processor is not None:
+                await processor.cleanup()
+        self._transport._pyaudio.terminate()
 
     def is_playback_active(self) -> bool:
         return self._playback_active or time.monotonic() < self._playback_active_until
@@ -160,7 +163,7 @@ class LocalAudioRuntimeManager:
                     session.device_id,
                 )
             finally:
-                transport.close()
+                await transport.close()
                 logger.info(
                     "iris.voice.local_audio.stopped session={} device={}",
                     session.session_id,

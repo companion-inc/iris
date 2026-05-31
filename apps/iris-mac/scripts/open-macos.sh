@@ -43,10 +43,35 @@ if ! codesign --force --deep --entitlements "$ENTITLEMENTS" --sign "$SIGN_IDENTI
 fi
 
 touch "$DEST_APP"
-pkill -f "pnpm voice:dev" >/dev/null 2>&1 || true
-pkill -f "uv run iris-voice" >/dev/null 2>&1 || true
-pkill -f "uv run iris-speaker-id" >/dev/null 2>&1 || true
-pkill -f "apps/iris-voice/.venv/bin/iris-voice" >/dev/null 2>&1 || true
-pkill -f "apps/iris-speaker-id/.venv/bin/iris-speaker-id" >/dev/null 2>&1 || true
-pkill -f "apps/iris-api/node_modules/.bin/../tsx/dist/cli.mjs src/server.ts" >/dev/null 2>&1 || true
+kill_matching() {
+  local pattern="$1"
+  local pid
+  for pid in $(pgrep -f "$pattern" 2>/dev/null); do
+    [[ "$pid" == "$$" ]] && continue
+    kill "$pid" >/dev/null 2>&1 || true
+  done
+  sleep 0.2
+  for pid in $(pgrep -f "$pattern" 2>/dev/null); do
+    [[ "$pid" == "$$" ]] && continue
+    kill -9 "$pid" >/dev/null 2>&1 || true
+  done
+}
+
+kill_matching "pnpm voice:dev"
+kill_matching "uv run iris-voice"
+kill_matching "uv run iris-speaker-id"
+kill_matching "apps/iris-voice/.venv/bin/iris-voice"
+kill_matching "apps/iris-speaker-id/.venv/bin/iris-speaker-id"
+kill_matching "apps/iris-api/node_modules/.bin/../tsx/dist/cli.mjs src/server.ts"
+for port in 4747 4748 4749 4750; do
+  for pid in $(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null); do
+    kill "$pid" >/dev/null 2>&1 || true
+  done
+done
+sleep 0.2
+for port in 4747 4748 4749 4750; do
+  for pid in $(lsof -tiTCP:"$port" -sTCP:LISTEN 2>/dev/null); do
+    kill -9 "$pid" >/dev/null 2>&1 || true
+  done
+done
 open -n "$DEST_APP"

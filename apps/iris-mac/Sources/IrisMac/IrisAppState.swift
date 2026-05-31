@@ -53,6 +53,7 @@ final class IrisAppState {
     private let transcriptStore = NativeTranscriptStore()
     private let deviceStore = NativeDeviceStore()
     private var bridgeWorkspaceURL: URL
+    private var voiceStatusTask: Task<Void, Never>?
 
     init() {
         self.supervisor = ProcessSupervisor()
@@ -146,6 +147,7 @@ final class IrisAppState {
         refreshMicrophonePermission()
         refreshSecretStatus()
         supervisor.startAll(voiceEnvironment: voiceEnvironment())
+        startVoiceStatusPolling()
         Task { [weak self] in
             try? await Task.sleep(for: .seconds(2))
             await self?.startNativeVoiceWhenReady()
@@ -184,6 +186,7 @@ final class IrisAppState {
             supervisor.lastError = error.localizedDescription
         }
         supervisor.startAll(voiceEnvironment: voiceEnvironment())
+        startVoiceStatusPolling()
         refreshLaunchAtLogin()
         refreshMicrophonePermission()
         refreshSecretStatus()
@@ -400,13 +403,24 @@ final class IrisAppState {
     }
 
     private func waitForVoiceSidecar() async {
-        for _ in 0..<10 {
+        for _ in 0..<60 {
             let health = await api.voiceHealth()
             voiceHealth = health
             if health.isRunning {
                 return
             }
             try? await Task.sleep(for: .milliseconds(500))
+        }
+    }
+
+    private func startVoiceStatusPolling() {
+        guard voiceStatusTask == nil else { return }
+        voiceStatusTask = Task { [weak self] in
+            while !Task.isCancelled {
+                await self?.voiceRuntime.refreshLocalAudioStatus()
+                self?.refreshMicrophonePermission()
+                try? await Task.sleep(for: .milliseconds(500))
+            }
         }
     }
 

@@ -566,33 +566,37 @@ private actor CodexAppServerClient {
         nextID += 1
         let line = try jsonLine(["jsonrpc": "2.0", "id": requestID, "method": method, "params": params])
 
-        let resultData: Data = try await withThrowingTaskGroup(of: Data.self) { group in
-            group.addTask {
+        let timeoutTask = Task {
+            try? await Task.sleep(for: .seconds(timeoutSeconds))
+            self.resumePendingRequest(id: requestID, throwing: CodexClientError.timeout(method))
+        }
+        defer { timeoutTask.cancel() }
+
+        let resultData: Data
+        do {
+            resultData = try await withTaskCancellationHandler {
                 try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Data, Error>) in
-                    Task {
-                        await self.storeContinuation(continuation, id: requestID)
-                    }
+                    pending[requestID] = continuation
                     stdin.write(Data((line + "\n").utf8))
                 }
+            } onCancel: {
+                Task {
+                    await self.resumePendingRequest(id: requestID, throwing: CodexClientError.processNotRunning)
+                }
             }
-            group.addTask {
-                try await Task.sleep(for: .seconds(timeoutSeconds))
-                throw CodexClientError.timeout(method)
-            }
-            guard let data = try await group.next() else {
-                throw CodexClientError.invalidResponse("Codex RPC returned no response: \(method)")
-            }
-            group.cancelAll()
-            pending.removeValue(forKey: requestID)
-            return data
+        } catch {
+            throw error
         }
 
         let object = try JSONSerialization.jsonObject(with: resultData)
         return object as? [String: Any] ?? [:]
     }
 
-    private func storeContinuation(_ continuation: CheckedContinuation<Data, Error>, id: Int) {
-        pending[id] = continuation
+    private func resumePendingRequest(id: Int, throwing error: Error) {
+        guard let continuation = pending.removeValue(forKey: id) else {
+            return
+        }
+        continuation.resume(throwing: error)
     }
 
     private func notify(method: String, params: [String: Any]) throws {
