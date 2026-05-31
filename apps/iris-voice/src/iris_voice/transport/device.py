@@ -7,6 +7,7 @@ from typing import Callable, Awaitable
 
 from fastapi import WebSocket
 from loguru import logger
+from pipecat.audio.resamplers.soxr_resampler import SOXRAudioResampler
 from pipecat.frames.frames import (
     CancelFrame,
     EndFrame,
@@ -27,6 +28,8 @@ class DeviceInputTransport(BaseInputTransport):
     def __init__(self, params: TransportParams):
         super().__init__(params)
         self._sample_rate = params.audio_in_sample_rate or 16000
+        self._resampler = SOXRAudioResampler()
+        self._resampled_frames = 0
 
     async def start(self, frame):
         await super().start(frame)
@@ -36,8 +39,19 @@ class DeviceInputTransport(BaseInputTransport):
     async def push_pcm(self, audio: bytes, sample_rate: int, channels: int):
         if not hasattr(self, "_audio_in_queue"):
             self._create_audio_task()
+        if sample_rate != self._sample_rate:
+            audio = await self._resampler.resample(audio, sample_rate, self._sample_rate)
+            self._resampled_frames += 1
+            if self._resampled_frames == 1 or self._resampled_frames % 100 == 0:
+                logger.info(
+                    "iris.voice.audio_input_resampled frames={} from_rate={} to_rate={} channels={}",
+                    self._resampled_frames,
+                    sample_rate,
+                    self._sample_rate,
+                    channels,
+                )
         await self.push_audio_frame(
-            InputAudioRawFrame(audio=audio, sample_rate=sample_rate, num_channels=channels)
+            InputAudioRawFrame(audio=audio, sample_rate=self._sample_rate, num_channels=channels)
         )
 
 

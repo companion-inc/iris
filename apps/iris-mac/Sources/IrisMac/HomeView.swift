@@ -1,4 +1,5 @@
 import SwiftUI
+import AppKit
 
 struct HomeView: View {
     @Environment(IrisAppState.self) private var appState
@@ -44,10 +45,14 @@ struct HomeView: View {
         SectionBlock(title: "Live") {
             VStack(alignment: .leading, spacing: 12) {
                 if appState.liveTranscripts.isEmpty {
-                    EmptyState(
-                        title: appState.nativeVoiceRunning ? "Listening." : "Not listening.",
-                        subtitle: appState.nativeVoiceRunning ? "Live transcripts appear here." : "Allow microphone access, then Iris starts listening here."
-                    )
+                    if appState.nativeVoiceRunning {
+                        EmptyState(
+                            title: "Listening.",
+                            subtitle: "Live transcripts appear here."
+                        )
+                    } else {
+                        microphoneActionState
+                    }
                 } else {
                     ForEach(appState.liveTranscripts.prefix(5)) { segment in
                         TranscriptRow(segment: segment, compact: true)
@@ -77,6 +82,37 @@ struct HomeView: View {
                 EmptyState(title: "No recent conversation.", subtitle: "The Home clear action only hides this surface.")
             }
         }
+    }
+
+    private var microphoneActionState: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("Not listening.")
+                .font(.title3.weight(.medium))
+                .foregroundStyle(.secondary)
+            Button {
+                if appState.microphoneStatus == "Denied" || appState.microphoneStatus == "Restricted" {
+                    openMicrophoneSettings()
+                } else {
+                    Task { await appState.startNativeVoiceIfPossible() }
+                }
+            } label: {
+                Label(
+                    appState.microphoneStatus == "Denied" || appState.microphoneStatus == "Restricted"
+                        ? "Open Microphone Settings"
+                        : "Start Listening",
+                    systemImage: "mic"
+                )
+            }
+            .buttonStyle(.borderedProminent)
+        }
+        .frame(maxWidth: .infinity, minHeight: 120, alignment: .leading)
+    }
+
+    private func openMicrophoneSettings() {
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Microphone") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
     }
 }
 

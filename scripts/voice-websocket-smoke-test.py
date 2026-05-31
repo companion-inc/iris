@@ -11,6 +11,7 @@ import subprocess
 import sys
 import tempfile
 import urllib.request
+from urllib.parse import urlparse, urlunparse
 import wave
 from pathlib import Path
 
@@ -55,6 +56,18 @@ def create_voice_session(api_url: str, device_token: str, *, insecure_tls: bool)
     return str(payload["voiceUrl"]), str(payload["sessionId"])
 
 
+def usable_voice_url(raw_url: str | None) -> str:
+    if not raw_url:
+        return ""
+    parsed = urlparse(raw_url)
+    if parsed.scheme in {"ws", "wss"}:
+        return raw_url
+    if parsed.scheme in {"http", "https"} and parsed.path not in {"", "/"}:
+        scheme = "wss" if parsed.scheme == "https" else "ws"
+        return urlunparse(parsed._replace(scheme=scheme))
+    return ""
+
+
 def synthesize_pcm(text: str, directory: Path) -> bytes:
     if not shutil.which("say") or not shutil.which("afconvert"):
         raise RuntimeError("macOS say and afconvert are required for this smoke test")
@@ -76,7 +89,7 @@ async def stream_pcm(websocket, pcm: bytes) -> None:
 
 
 async def run_smoke(args: argparse.Namespace) -> int:
-    voice_url = args.voice_url
+    voice_url = usable_voice_url(args.voice_url)
     session_id = "manual"
     if not voice_url:
         token = args.device_token or "local"

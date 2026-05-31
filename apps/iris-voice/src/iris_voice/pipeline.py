@@ -50,7 +50,11 @@ from .tools import basic_voice_tools, register_basic_voice_tools
 from .transcripts import TranscriptRelay
 from .transport.device import DeviceTransport
 from .tts import build_tts_service, configured_tts_sample_rate
-from .turns.barge_in import build_barge_in_processor, build_barge_in_vad
+from .turns.barge_in import (
+    BARGE_IN_VAD_SAMPLE_RATE,
+    build_barge_in_processor,
+    build_barge_in_vad,
+)
 from .turns.playback_echo import PlaybackEchoGuard
 from .turns.playback_wake_gate import PlaybackWakeGateUserTurnStartStrategy
 from .turns.timing import USER_SPEECH_TIMEOUT_SECONDS
@@ -249,6 +253,7 @@ def build_context_aggregators(
     playback_active: Callable[[], bool],
     echo_guard: PlaybackEchoGuard,
     initial_awake: bool = False,
+    sample_rate: int = BARGE_IN_VAD_SAMPLE_RATE,
 ) -> LLMContextAggregatorPair:
     start_strategies = [
         PlaybackWakeGateUserTurnStartStrategy(
@@ -273,7 +278,7 @@ def build_context_aggregators(
                     )
                 ],
             ),
-            vad_analyzer=build_barge_in_vad(),
+            vad_analyzer=build_barge_in_vad(sample_rate),
             user_turn_stop_timeout=USER_TURN_STOP_TIMEOUT_SECONDS,
         ),
     )
@@ -398,17 +403,19 @@ async def run_voice_runtime(
         if parsed_wake_active_window_secs is not None
         else DEFAULT_WAKE_ACTIVE_WINDOW_SECONDS
     )
+    input_sample_rate = BARGE_IN_VAD_SAMPLE_RATE
     logger.info(
-        "iris.voice.stt_config model={} language={} sample_rate={} diarize=true profanity_filter=false keyterm_count={} memory_count={} wake_timeout_secs={}",
+        "iris.voice.stt_config model={} language={} sample_rate={} transport_sample_rate={} diarize=true profanity_filter=false keyterm_count={} memory_count={} wake_timeout_secs={}",
         stt_model,
         stt_language,
+        input_sample_rate,
         session.sample_rate,
         len(stt_keyterms),
         memory_count,
         wake_active_window_secs,
     )
     stt = build_stt_service(
-        sample_rate=session.sample_rate,
+        sample_rate=input_sample_rate,
         stt_model=stt_model,
         stt_language=stt_language,
         stt_keyterms=stt_keyterms,
@@ -503,6 +510,7 @@ async def run_voice_runtime(
             playback_active=transport.is_playback_active,
             echo_guard=playback_echo_guard,
             initial_awake=session.initial_awake,
+            sample_rate=BARGE_IN_VAD_SAMPLE_RATE,
         )
         assistant_aggregator = context_aggregator.assistant()
         attach_assistant_transcript_persistence(
@@ -560,6 +568,7 @@ async def run_voice_runtime(
             playback_active=transport.is_playback_active,
             echo_guard=playback_echo_guard,
             initial_awake=session.initial_awake,
+            sample_rate=BARGE_IN_VAD_SAMPLE_RATE,
         )
         assistant_aggregator = context_aggregator.assistant()
         attach_assistant_transcript_persistence(
@@ -626,6 +635,7 @@ async def run_voice_runtime(
             playback_active=transport.is_playback_active,
             echo_guard=playback_echo_guard,
             initial_awake=session.initial_awake,
+            sample_rate=BARGE_IN_VAD_SAMPLE_RATE,
         )
         assistant_aggregator = context_aggregator.assistant()
         attach_assistant_transcript_persistence(
@@ -663,7 +673,7 @@ async def run_voice_runtime(
     task = PipelineTask(
         pipeline,
         params=PipelineParams(
-            audio_in_sample_rate=session.sample_rate,
+            audio_in_sample_rate=input_sample_rate,
             audio_out_sample_rate=output_sample_rate,
             enable_heartbeats=True,
             enable_metrics=True,

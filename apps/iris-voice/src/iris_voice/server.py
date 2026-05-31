@@ -30,6 +30,7 @@ from pipecat.transports.base_transport import TransportParams
 from .agent_completion_events import AgentCompletionSubscriber
 from .runtime_events import RuntimeEvents
 from .session import verify_session_token
+from .turns.barge_in import BARGE_IN_VAD_SAMPLE_RATE
 from .transport.device import DeviceTransport
 
 if TYPE_CHECKING:
@@ -109,7 +110,7 @@ def create_app() -> FastAPI:
             websocket,
             TransportParams(
                 audio_in_enabled=True,
-                audio_in_sample_rate=session.sample_rate,
+                audio_in_sample_rate=BARGE_IN_VAD_SAMPLE_RATE,
                 audio_out_enabled=True,
                 audio_out_sample_rate=session.sample_rate,
                 audio_out_channels=1,
