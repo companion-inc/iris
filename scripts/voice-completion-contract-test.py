@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import sys
+import time
 from pathlib import Path
 from typing import Any
 
@@ -22,7 +23,11 @@ from iris_voice.agent_completion_events import (  # noqa: E402
 import iris_voice.agent_completion_events as agent_completion_events  # noqa: E402
 import iris_voice.completion_delivery_scheduler as completion_delivery_scheduler  # noqa: E402
 from iris_voice.agent_bridge import infer_agent_delivery  # noqa: E402
-from iris_voice.local_audio import DirectLocalAudioOutput, LocalPlaybackStateTracker  # noqa: E402
+from iris_voice.local_audio import (  # noqa: E402
+    DirectLocalAudioOutput,
+    LocalAudioRuntimeManager,
+    LocalPlaybackStateTracker,
+)
 from iris_voice.runtime_events import RuntimeEvents  # noqa: E402
 from iris_voice.session import VoiceSessionContext  # noqa: E402
 from iris_voice.prompt import system_instruction  # noqa: E402
@@ -574,6 +579,32 @@ async def test_local_audio_output_resumes_on_next_tts_start() -> None:
     assert writes == [False]
 
 
+async def test_local_audio_watchdog_detects_stalled_input_stream() -> None:
+    manager = LocalAudioRuntimeManager()
+    now = time.time()
+    manager._task = asyncio.create_task(asyncio.sleep(60))  # noqa: SLF001
+    manager._started_at = now - 120  # noqa: SLF001
+    try:
+        manager._last_audio_activity_at = None  # noqa: SLF001
+        assert manager._is_stale_transcription_stream() is True  # noqa: SLF001
+        assert manager._stale_audio_reason() == "no_audio_frames"  # noqa: SLF001
+
+        manager._last_audio_activity_at = now - 50  # noqa: SLF001
+        assert manager._is_stale_transcription_stream() is True  # noqa: SLF001
+        assert manager._stale_audio_reason() == "audio_input_stalled"  # noqa: SLF001
+
+        manager._last_audio_activity_at = now  # noqa: SLF001
+        manager._last_transcript_at = now - 120  # noqa: SLF001
+        assert manager._is_stale_transcription_stream() is True  # noqa: SLF001
+        assert manager._stale_audio_reason() == "stale_transcripts"  # noqa: SLF001
+    finally:
+        manager._task.cancel()  # noqa: SLF001
+        try:
+            await manager._task  # noqa: SLF001
+        except asyncio.CancelledError:
+            pass
+
+
 async def test_noop_tool_finishes_without_running_llm() -> None:
     llm = FakeLLM()
     websocket = FakeWebSocket()
@@ -904,6 +935,7 @@ async def main() -> None:
     await test_local_playback_is_active_at_tts_start()
     await test_local_audio_output_drops_frames_after_interruption()
     await test_local_audio_output_resumes_on_next_tts_start()
+    await test_local_audio_watchdog_detects_stalled_input_stream()
     await test_noop_tool_finishes_without_running_llm()
     await test_transcript_relay_marks_post_wake_turn_before_downstream_wake_event()
     await test_regular_turn_strategy_accepts_assistant_followup_after_question()

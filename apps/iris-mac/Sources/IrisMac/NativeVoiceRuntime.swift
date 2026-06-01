@@ -26,6 +26,8 @@ final class NativeVoiceRuntime {
         guard !isRunning else { return }
         do {
             status = "Starting Pipecat audio"
+            liveTranscripts.removeAll()
+            seenLocalAudioEventKeys.removeAll()
             let voiceSession = try await api.createVoiceSession(sampleRate: 16_000, channels: 1)
             sessionID = voiceSession.sessionId
             let localStatus = try await api.startLocalAudio(voiceUrl: voiceSession.voiceUrl)
@@ -53,6 +55,7 @@ final class NativeVoiceRuntime {
         sessionID = nil
         isRunning = false
         status = "Idle"
+        liveTranscripts.removeAll()
         seenLocalAudioEventKeys.removeAll()
     }
 
@@ -263,7 +266,13 @@ final class NativeVoiceRuntime {
 
     func applyLocalAudioStatus(_ localStatus: LocalAudioRuntimeStatus) {
         isRunning = localStatus.running
-        sessionID = localStatus.sessionId ?? sessionID
+        if let nextSessionID = localStatus.sessionId, nextSessionID != sessionID {
+            sessionID = nextSessionID
+            liveTranscripts.removeAll()
+            seenLocalAudioEventKeys.removeAll()
+        } else {
+            sessionID = localStatus.sessionId ?? sessionID
+        }
         for event in localStatus.recentEvents ?? [] {
             let key = localAudioEventKey(event)
             guard !seenLocalAudioEventKeys.contains(key) else { continue }

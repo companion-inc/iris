@@ -453,13 +453,15 @@ class LocalAudioRuntimeManager:
                 if self._session is None or self._session.session_id != session.session_id:
                     return
                 if self._is_stale_transcription_stream():
+                    reason = self._stale_audio_reason()
                     logger.warning(
-                        "iris.voice.local_audio.watchdog_restart session={} device={} reason=stale_transcripts",
+                        "iris.voice.local_audio.watchdog_restart session={} device={} reason={}",
                         session.session_id,
                         session.device_id,
+                        reason,
                     )
-                    self._last_error = "Restarted stale transcription stream"
-                    await self._stop_pipeline(reason="stale_transcripts")
+                    self._last_error = f"Restarted stale audio stream: {reason}"
+                    await self._stop_pipeline(reason=reason)
                     if self._session is not None and self._session.session_id == session.session_id:
                         await self.start(session)
                     return
@@ -475,11 +477,19 @@ class LocalAudioRuntimeManager:
             return False
         last_audio_at = self._last_audio_activity_at
         last_transcript_at = self._last_transcript_at
-        if last_audio_at is None or now - last_audio_at > 35:
-            return False
+        if last_audio_at is None or now - last_audio_at > 45:
+            return True
         if last_transcript_at is None:
             return now - last_audio_at < 15
         return now - last_transcript_at > 90
+
+    def _stale_audio_reason(self) -> str:
+        last_audio_at = self._last_audio_activity_at
+        if last_audio_at is None:
+            return "no_audio_frames"
+        if time.time() - last_audio_at > 45:
+            return "audio_input_stalled"
+        return "stale_transcripts"
 
     def _remember_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")

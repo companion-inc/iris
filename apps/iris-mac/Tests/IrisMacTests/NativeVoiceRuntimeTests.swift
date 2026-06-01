@@ -112,4 +112,36 @@ final class NativeVoiceRuntimeTests: XCTestCase {
         XCTAssertEqual(runtime.liveTranscripts.map(\.speakerName), ["Iris", "Speaker 1"])
         XCTAssertEqual(runtime.lastEvent, "assistant.turn.stopped")
     }
+
+    @MainActor
+    func testLocalAudioStatusClearsLiveTranscriptWhenSessionChanges() {
+        let runtime = NativeVoiceRuntime(api: IrisAPI())
+        runtime.applyLocalAudioStatus(LocalAudioRuntimeStatus(
+            ok: true,
+            running: true,
+            sessionId: "voice_old",
+            uptimeSeconds: 1,
+            lastError: nil,
+            recentEvents: [
+                LocalAudioRuntimeEvent(type: "transcript.interim", text: "So", reason: nil, at: 1)
+            ]
+        ))
+
+        XCTAssertEqual(runtime.liveTranscripts.map(\.text), ["So"])
+
+        runtime.applyLocalAudioStatus(LocalAudioRuntimeStatus(
+            ok: true,
+            running: true,
+            sessionId: "voice_new",
+            uptimeSeconds: 1,
+            lastError: nil,
+            recentEvents: [
+                LocalAudioRuntimeEvent(type: "ready", text: nil, reason: nil, at: 2)
+            ]
+        ))
+
+        XCTAssertEqual(runtime.liveTranscripts, [])
+        XCTAssertEqual(runtime.sessionID, "voice_new")
+        XCTAssertEqual(runtime.lastEvent, "ready")
+    }
 }

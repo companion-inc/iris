@@ -26,3 +26,19 @@
 - Started native voice through `/debug/native-voice/start`; logs showed `iris.voice.local_audio.pipeline_ready` and `iris.voice.agent_completion_subscribed ... transport=polling`.
 - Triggered run `agent_run_31cc008b76d746a1bfd9a3e8e79786bc`; completion `agent_completion_e9cbb369e4cd4d2ba63785952136c019` was enqueued, injected, spoken via XAI TTS, and marked delivered at `2026-06-01T06:56:25.602Z`.
 - `/debug/native-voice` showed live transcript from Iris: `Done. Notification smoke two is set.`
+
+## 2026-06-01 Stale Local Audio Follow-Up
+
+## Observation
+- Live app status showed local audio running for roughly 7 hours with only a stale interim transcript `So` and no new local-audio events.
+- `~/Library/Logs/Iris/iris-voice.log` for that old session showed CoreAudio `PaMacCore (AUHAL)` `err='-50'`, then repeated zero-gain input logs and no live transcription progress.
+- After stopping local audio and starting a fresh native voice session, a controlled `say 'Iris can you hear me'` round trip produced Deepgram final transcript `Iris you hear me?`, wake detection, Gemini response generation, XAI TTS generation, and `iris.voice.local_audio.speaker_write ... written=True`.
+
+## Decision
+- Treat a long-running local-audio pipeline with no audio activity, or audio activity stalled for more than 45 seconds, as stale and restart it from the watchdog.
+- Clear Swift live transcripts and local event de-duplication whenever native voice starts, stops, or observes a new local-audio session id.
+
+## Verification Result
+- `pnpm voice:check` passed.
+- `uv run ../../scripts/voice-completion-contract-test.py` passed and the `/tmp/iris-voice-contract.log` scan found no `ERROR`, `Traceback`, `RuntimeWarning`, or `exception`.
+- `swift test` in `apps/iris-mac` passed 14 XCTest tests with 0 failures, including the new session-change transcript clearing test.
