@@ -37,6 +37,7 @@ from iris_voice.sound_recognition import (  # noqa: E402
 )
 from iris_voice.tools import agent_result_run_id, agent_result_status  # noqa: E402
 from iris_voice.tools import register_basic_voice_tools  # noqa: E402
+from iris_voice.tool_schemas import basic_voice_tools  # noqa: E402
 from iris_voice.transcripts import TranscriptRelay  # noqa: E402
 from iris_voice.turns.wake import (  # noqa: E402
     DEFAULT_WAKE_ACTIVE_WINDOW_SECONDS,
@@ -447,6 +448,12 @@ async def test_system_prompt_treats_user_turns_as_imperfect_speech() -> None:
     assert "too garbled to recover a request" in prompt
     assert "[inhale]" in prompt
     assert "Speech tags are available" in prompt
+    assert "Before calling agent, rewrite the spoken turn" in prompt
+    assert "Do not pass a raw transcript through as the agent prompt" in prompt
+
+    schema = basic_voice_tools()
+    agent_tool = next(tool for tool in schema.standard_tools if tool.name == "agent")
+    assert "Rewrite the user's spoken request" in agent_tool.properties["prompt"]["description"]
 
 
 async def test_playback_wake_interrupt_allows_interruption_command() -> None:

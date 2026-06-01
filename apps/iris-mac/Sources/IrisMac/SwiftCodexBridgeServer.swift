@@ -176,21 +176,6 @@ final class SwiftCodexBridgeServer: @unchecked Sendable {
         return "low"
     }
 
-    private func buildCodexAgentPrompt(prompt: String, context: String?) -> String {
-        var lines = [
-            "Interpreted desktop task for Codex:",
-            prompt,
-            "",
-            "Do not merely repeat the user's raw words. Infer the intended desktop action and execute or answer it directly. Ask for clarification only when the intended action is genuinely ambiguous."
-        ]
-        if let context = context?.trimmingCharacters(in: .whitespacesAndNewlines), !context.isEmpty {
-            lines.append("")
-            lines.append("Raw voice context:")
-            lines.append(context)
-        }
-        return lines.joined(separator: "\n")
-    }
-
     private func healthPayload() async -> [String: Any] {
         let snapshot = await client.snapshot()
         return [
@@ -219,6 +204,16 @@ final class SwiftCodexBridgeServer: @unchecked Sendable {
         return CodexCompletionContext(runId: runId, sessionId: payload.iris?.sessionId)
     }
 
+}
+
+func buildCodexAgentPrompt(prompt: String, context: String?) -> String {
+    var lines = [prompt.trimmingCharacters(in: .whitespacesAndNewlines)]
+    if let context = context?.trimmingCharacters(in: .whitespacesAndNewlines), !context.isEmpty {
+        lines.append("")
+        lines.append("Voice context:")
+        lines.append(context)
+    }
+    return lines.joined(separator: "\n")
 }
 
 private struct HTTPRequest {
