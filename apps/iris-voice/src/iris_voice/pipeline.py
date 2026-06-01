@@ -463,7 +463,7 @@ async def run_voice_runtime(
             session=session,
             state=sound_recognition_state,
         ),
-        InputAudioAutoGain(),
+        InputAudioAutoGain(on_audio_activity=events.mark_audio_activity),
         build_barge_in_processor(),
         stt,
         VoiceFrameDiagnostics(label="after_stt"),

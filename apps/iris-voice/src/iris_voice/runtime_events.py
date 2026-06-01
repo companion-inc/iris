@@ -237,6 +237,9 @@ class RuntimeEvents:
     def last_user_turn_context(self) -> str | None:
         return self._last_user_turn_context
 
+    def mark_audio_activity(self, payload: dict[str, Any]) -> None:
+        self.emit({"type": "audio.activity", **payload})
+
     def consume_wake_context(
         self,
         *,

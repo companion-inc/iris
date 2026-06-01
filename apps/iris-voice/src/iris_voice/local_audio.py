@@ -225,6 +225,7 @@ class DirectLocalAudioOutput(FrameProcessor):
 class LocalAudioRuntimeManager:
     def __init__(self):
         self._task: asyncio.Task[None] | None = None
+        self._watchdog_task: asyncio.Task[None] | None = None
         self._pipeline_task: PipelineTask | None = None
         self._session: VoiceSessionContext | None = None
         self._events: RuntimeEvents | None = None
@@ -301,10 +302,21 @@ class LocalAudioRuntimeManager:
                 )
 
         self._task = asyncio.create_task(run())
+        self._watchdog_task = asyncio.create_task(self._watchdog(session))
         await asyncio.sleep(0)
         return self.status()
 
     async def stop(self, *, reason: str = "stopped") -> dict[str, Any]:
+        if self._watchdog_task is not None and not self._watchdog_task.done():
+            self._watchdog_task.cancel()
+            try:
+                await self._watchdog_task
+            except asyncio.CancelledError:
+                pass
+        self._watchdog_task = None
+        return await self._stop_pipeline(reason=reason)
+
+    async def _stop_pipeline(self, *, reason: str) -> dict[str, Any]:
         if self._pipeline_task is not None:
             try:
                 await asyncio.wait_for(self._pipeline_task.cancel(reason=reason), timeout=2)
@@ -329,6 +341,51 @@ class LocalAudioRuntimeManager:
         self._pipeline_task = None
         self._task = None
         return self.status()
+
+    async def _watchdog(self, session: VoiceSessionContext) -> None:
+        try:
+            while True:
+                await asyncio.sleep(15)
+                if self._task is None or self._task.done():
+                    return
+                if self._session is None or self._session.session_id != session.session_id:
+                    return
+                if self._is_stale_transcription_stream():
+                    logger.warning(
+                        "iris.voice.local_audio.watchdog_restart session={} device={} reason=stale_transcripts",
+                        session.session_id,
+                        session.device_id,
+                    )
+                    self._last_error = "Restarted stale transcription stream"
+                    await self._stop_pipeline(reason="stale_transcripts")
+                    if self._session is not None and self._session.session_id == session.session_id:
+                        await self.start(session)
+                    return
+        except asyncio.CancelledError:
+            return
+
+    def _is_stale_transcription_stream(self) -> bool:
+        running = self._task is not None and not self._task.done()
+        if not running or not self._started_at:
+            return False
+        now = time.time()
+        if now - self._started_at < 90:
+            return False
+        last_audio_at = self._last_event_at("audio.activity")
+        last_transcript_at = self._last_event_at("transcript.final", "transcript.interim")
+        if last_audio_at is None or now - last_audio_at > 35:
+            return False
+        if last_transcript_at is None:
+            return now - last_audio_at < 15
+        return now - last_transcript_at > 90
+
+    def _last_event_at(self, *event_types: str) -> float | None:
+        wanted = set(event_types)
+        for event in reversed(self._recent_events):
+            if event.get("type") in wanted:
+                at = event.get("at")
+                return at if isinstance(at, float) else None
+        return None
 
     def _remember_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")

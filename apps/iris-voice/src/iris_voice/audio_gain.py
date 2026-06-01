@@ -3,6 +3,8 @@ from __future__ import annotations
 import os
 import time
 from array import array
+from collections.abc import Callable
+from typing import Any
 
 from loguru import logger
 from pipecat.frames.frames import Frame, InputAudioRawFrame
@@ -20,6 +22,7 @@ class InputAudioAutoGain(FrameProcessor):
         target_rms: int | None = None,
         max_gain: float | None = None,
         log_interval_seconds: float = 10.0,
+        on_audio_activity: Callable[[dict[str, Any]], None] | None = None,
     ):
         super().__init__()
         self._target_rms = target_rms if target_rms is not None else _int_env(
@@ -31,6 +34,7 @@ class InputAudioAutoGain(FrameProcessor):
             DEFAULT_MAX_GAIN,
         )
         self._log_interval_seconds = log_interval_seconds
+        self._on_audio_activity = on_audio_activity
         self._last_log_at = 0.0
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
@@ -62,6 +66,14 @@ class InputAudioAutoGain(FrameProcessor):
                     self._target_rms,
                     self._max_gain,
                 )
+                if self._on_audio_activity:
+                    self._on_audio_activity(
+                        {
+                            "rmsBefore": rms_before,
+                            "rmsAfter": rms_after,
+                            "gain": gain,
+                        }
+                    )
                 self._last_log_at = now
         await self.push_frame(frame, direction)
 
