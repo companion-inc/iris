@@ -120,6 +120,7 @@ final class NativeVoiceRuntime {
             lastEvent = "text"
             return
         }
+        guard type != "audio.activity" else { return }
         lastEvent = type
         if type == "transcript.final" || type == "transcript.interim" {
             handleTranscriptEvent(object, isInterim: type == "transcript.interim")
@@ -279,6 +280,7 @@ final class NativeVoiceRuntime {
     }
 
     private func handleLocalAudioEvent(_ event: LocalAudioRuntimeEvent) {
+        guard event.type != "audio.activity" else { return }
         lastEvent = event.type
         switch event.type {
         case "transcript.final", "transcript.interim":

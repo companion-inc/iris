@@ -231,6 +231,8 @@ class LocalAudioRuntimeManager:
         self._events: RuntimeEvents | None = None
         self._started_at: float | None = None
         self._last_error: str | None = None
+        self._last_audio_activity_at: float | None = None
+        self._last_transcript_at: float | None = None
         self._recent_events: deque[dict[str, Any]] = deque(maxlen=80)
 
     def status(self) -> dict[str, Any]:
@@ -257,6 +259,8 @@ class LocalAudioRuntimeManager:
         self._events.add_listener(self._remember_event)
         self._started_at = time.time()
         self._last_error = None
+        self._last_audio_activity_at = None
+        self._last_transcript_at = None
         self._recent_events.clear()
         transport = LocalAudioRuntimeTransport(
             sample_rate=session.sample_rate,
@@ -371,31 +375,29 @@ class LocalAudioRuntimeManager:
         now = time.time()
         if now - self._started_at < 90:
             return False
-        last_audio_at = self._last_event_at("audio.activity")
-        last_transcript_at = self._last_event_at("transcript.final", "transcript.interim")
+        last_audio_at = self._last_audio_activity_at
+        last_transcript_at = self._last_transcript_at
         if last_audio_at is None or now - last_audio_at > 35:
             return False
         if last_transcript_at is None:
             return now - last_audio_at < 15
         return now - last_transcript_at > 90
 
-    def _last_event_at(self, *event_types: str) -> float | None:
-        wanted = set(event_types)
-        for event in reversed(self._recent_events):
-            if event.get("type") in wanted:
-                at = event.get("at")
-                return at if isinstance(at, float) else None
-        return None
-
     def _remember_event(self, event: dict[str, Any]) -> None:
         event_type = event.get("type")
         if not event_type:
             return
+        now = time.time()
+        if event_type == "audio.activity":
+            self._last_audio_activity_at = now
+            return
+        if event_type in {"transcript.final", "transcript.interim"}:
+            self._last_transcript_at = now
         self._recent_events.append(
             {
                 "type": event_type,
                 "text": event.get("text"),
                 "reason": event.get("reason"),
-                "at": time.time(),
+                "at": now,
             }
         )
