@@ -198,14 +198,15 @@ class DirectLocalAudioOutput(FrameProcessor):
     async def cleanup(self):
         await super().cleanup()
         if self._stream is not None:
-            await asyncio.to_thread(self._stream.stop_stream)
-            await asyncio.to_thread(self._stream.close)
-            self._stream = None
+            await self._close_stream(reason="cleanup")
         self._executor.shutdown(wait=False, cancel_futures=True)
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if direction == FrameDirection.DOWNSTREAM and isinstance(frame, InterruptionFrame):
+        if direction == FrameDirection.DOWNSTREAM and isinstance(frame, TTSStartedFrame):
+            self._drop_audio_until_tts_stop = False
+            self._dropped_interrupted_audio_frames = 0
+        elif direction == FrameDirection.DOWNSTREAM and isinstance(frame, InterruptionFrame):
             self._drop_audio_until_tts_stop = True
             self._dropped_interrupted_audio_frames = 0
             await self._close_stream(reason="interruption")
@@ -237,7 +238,16 @@ class DirectLocalAudioOutput(FrameProcessor):
         await self._ensure_stream(sample_rate=sample_rate, channels=channels)
         if self._stream is None:
             return False
-        await asyncio.get_running_loop().run_in_executor(self._executor, self._stream.write, frame.audio)
+        stream = self._stream
+        try:
+            await asyncio.get_running_loop().run_in_executor(self._executor, stream.write, frame.audio)
+        except OSError as error:
+            logger.warning("iris.voice.local_audio.write_failed error={}", error)
+            if self._stream is stream:
+                self._stream = None
+                self._stream_sample_rate = 0
+                self._stream_channels = 0
+            return False
         return True
 
     async def _ensure_stream(self, *, sample_rate: int, channels: int) -> None:
@@ -264,11 +274,18 @@ class DirectLocalAudioOutput(FrameProcessor):
         if self._stream is None:
             return
         logger.info("iris.voice.local_audio.stream_closed reason={}", reason)
-        await asyncio.to_thread(self._stream.stop_stream)
-        await asyncio.to_thread(self._stream.close)
+        stream = self._stream
         self._stream = None
         self._stream_sample_rate = 0
         self._stream_channels = 0
+
+        def close_stream() -> None:
+            try:
+                stream.stop_stream()
+            finally:
+                stream.close()
+
+        await asyncio.get_running_loop().run_in_executor(self._executor, close_stream)
 
 
 class LocalAudioRuntimeManager:

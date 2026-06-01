@@ -555,6 +555,25 @@ async def test_local_audio_output_drops_frames_after_interruption() -> None:
     assert writes == [False]
 
 
+async def test_local_audio_output_resumes_on_next_tts_start() -> None:
+    writes: list[bool] = []
+    output = DirectLocalAudioOutput(
+        py_audio=None,
+        sample_rate=16000,
+        channels=1,
+        on_speaker_write=lambda _frame, *, written: writes.append(written),
+    )
+
+    await output.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
+    await output.process_frame(
+        OutputAudioRawFrame(audio=b"\x00\x00" * 160, sample_rate=16000, num_channels=1),
+        FrameDirection.DOWNSTREAM,
+    )
+    await output.process_frame(TTSStartedFrame(context_id="next"), FrameDirection.DOWNSTREAM)
+    assert output._drop_audio_until_tts_stop is False  # noqa: SLF001
+    assert writes == [False]
+
+
 async def test_noop_tool_finishes_without_running_llm() -> None:
     llm = FakeLLM()
     websocket = FakeWebSocket()
@@ -884,6 +903,7 @@ async def main() -> None:
     await test_playback_echo_guard_only_filters_assistant_text()
     await test_local_playback_is_active_at_tts_start()
     await test_local_audio_output_drops_frames_after_interruption()
+    await test_local_audio_output_resumes_on_next_tts_start()
     await test_noop_tool_finishes_without_running_llm()
     await test_transcript_relay_marks_post_wake_turn_before_downstream_wake_event()
     await test_regular_turn_strategy_accepts_assistant_followup_after_question()
