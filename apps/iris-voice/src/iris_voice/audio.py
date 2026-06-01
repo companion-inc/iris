@@ -2,8 +2,8 @@ from __future__ import annotations
 
 
 def apply_pcm16le_gain(audio: bytes, gain: float) -> bytes:
-    clamped_gain = max(0.0, min(1.0, gain))
-    if clamped_gain >= 0.999:
+    clamped_gain = max(0.0, min(4.0, gain))
+    if 0.999 <= clamped_gain <= 1.001:
         return audio
     data = bytearray(audio)
     even_length = len(data) - (len(data) % 2)

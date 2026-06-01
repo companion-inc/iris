@@ -8,7 +8,7 @@ from pipecat.services.google.tts import GeminiTTSService, GeminiTTSSettings
 from pipecat.services.openai.tts import OpenAITTSService, OpenAITTSSettings
 from pipecat.services.tts_service import TTSService
 
-from .env import optional_int_env
+from .env import optional_float_env, optional_int_env
 from .xai_tts import XAITTSService
 
 
@@ -43,14 +43,16 @@ def build_tts_service(*, deepgram_api_key: str, sample_rate: int) -> tuple[TTSSe
         language = os.getenv("IRIS_XAI_TTS_LANGUAGE", "en")
         base_url = os.getenv("IRIS_XAI_TTS_BASE_URL", "https://api.x.ai/v1")
         optimize_streaming_latency = optional_int_env("IRIS_XAI_TTS_OPTIMIZE_STREAMING_LATENCY", 0)
+        output_gain = optional_float_env("IRIS_XAI_TTS_OUTPUT_GAIN", 1.6)
         codec = os.getenv("IRIS_XAI_TTS_CODEC", "pcm")
         logger.info(
-            "iris.voice.tts_config provider=xai mode=http_pcm voice_id={} sample_rate={} language={} codec={} latency_opt={}",
+            "iris.voice.tts_config provider=xai mode=http_pcm voice_id={} sample_rate={} language={} codec={} latency_opt={} output_gain={}",
             voice_id,
             sample_rate,
             language,
             codec,
             optimize_streaming_latency,
+            output_gain,
         )
         return (
             XAITTSService(
@@ -60,6 +62,7 @@ def build_tts_service(*, deepgram_api_key: str, sample_rate: int) -> tuple[TTSSe
                 language=language,
                 sample_rate=sample_rate,
                 optimize_streaming_latency=optimize_streaming_latency,
+                output_gain=output_gain,
             ),
             "grok-tts",
         )

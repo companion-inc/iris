@@ -3,10 +3,11 @@ from __future__ import annotations
 import asyncio
 import time
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from loguru import logger
-from pipecat.frames.frames import Frame, OutputAudioRawFrame, TTSStartedFrame, TTSStoppedFrame
+from pipecat.frames.frames import Frame, OutputAudioRawFrame
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -32,7 +33,11 @@ class LocalAudioRuntimeTransport:
         self._playback_active_until = 0.0
         self._events = events
         self._output: Pipeline | None = None
+        self._direct_output: DirectLocalAudioOutput | None = None
         self._output_audio_frames = 0
+        self._speaker_write_frames = 0
+        self._speaker_write_bytes = 0
+        self._playback_stop_task: asyncio.Task[None] | None = None
         self._transport = LocalAudioTransport(
             params=LocalAudioTransportParams(
                 audio_in_enabled=True,
@@ -49,6 +54,12 @@ class LocalAudioRuntimeTransport:
 
     def output(self):
         if self._output is None:
+            self._direct_output = DirectLocalAudioOutput(
+                py_audio=self._transport._pyaudio,
+                sample_rate=self._transport._params.audio_out_sample_rate or BARGE_IN_VAD_SAMPLE_RATE,
+                channels=self._transport._params.audio_out_channels,
+                on_speaker_write=self._mark_speaker_write,
+            )
             self._output = Pipeline(
                 [
                     LocalPlaybackStateTracker(
@@ -57,12 +68,16 @@ class LocalAudioRuntimeTransport:
                         on_stopped=self._mark_playback_stopped,
                         on_audio_frame=self._mark_audio_frame,
                     ),
-                    self._transport.output(),
+                    self._direct_output,
                 ]
             )
         return self._output
 
     async def close(self) -> None:
+        if self._playback_stop_task and not self._playback_stop_task.done():
+            self._playback_stop_task.cancel()
+        if self._direct_output is not None:
+            await self._direct_output.cleanup()
         for processor in (self._transport._input, self._transport._output):
             if processor is not None:
                 await processor.cleanup()
@@ -72,6 +87,8 @@ class LocalAudioRuntimeTransport:
         return self._playback_active or time.monotonic() < self._playback_active_until
 
     def _mark_playback_started(self) -> None:
+        if self._playback_stop_task and not self._playback_stop_task.done():
+            self._playback_stop_task.cancel()
         if not self._playback_active:
             logger.info("iris.voice.local_audio.playback_started")
             self._events.emit({"type": "assistant.audio.started"})
@@ -85,6 +102,18 @@ class LocalAudioRuntimeTransport:
         self._playback_active = False
         self._playback_active_until = time.monotonic() + LOCAL_PLAYBACK_ECHO_TAIL_SECONDS
 
+    def _schedule_playback_stopped(self) -> None:
+        if self._playback_stop_task and not self._playback_stop_task.done():
+            self._playback_stop_task.cancel()
+        self._playback_stop_task = asyncio.create_task(self._delayed_playback_stopped())
+
+    async def _delayed_playback_stopped(self) -> None:
+        try:
+            await asyncio.sleep(1.5)
+            self._mark_playback_stopped()
+        except asyncio.CancelledError:
+            return
+
     def _mark_audio_frame(self, frame: OutputAudioRawFrame) -> None:
         self._output_audio_frames += 1
         if self._output_audio_frames == 1 or self._output_audio_frames % 50 == 0:
@@ -94,6 +123,23 @@ class LocalAudioRuntimeTransport:
                 len(frame.audio),
                 frame.sample_rate,
                 frame.num_channels,
+            )
+
+    def _mark_speaker_write(self, frame: OutputAudioRawFrame, *, written: bool) -> None:
+        self._speaker_write_frames += 1
+        self._speaker_write_bytes += len(frame.audio)
+        if written:
+            self._mark_playback_started()
+            self._schedule_playback_stopped()
+        if self._speaker_write_frames == 1 or self._speaker_write_frames % 50 == 0 or not written:
+            logger.info(
+                "iris.voice.local_audio.speaker_write frames={} bytes={} last_bytes={} sample_rate={} channels={} written={}",
+                self._speaker_write_frames,
+                self._speaker_write_bytes,
+                len(frame.audio),
+                frame.sample_rate,
+                frame.num_channels,
+                written,
             )
 
 
@@ -106,16 +152,74 @@ class LocalPlaybackStateTracker(FrameProcessor):
         self._on_audio_frame = on_audio_frame
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
+        await super().process_frame(frame, direction)
         if direction == FrameDirection.DOWNSTREAM:
             name = frame.__class__.__name__
-            if name == "BotStartedSpeakingFrame" or isinstance(frame, TTSStartedFrame):
-                self._on_started()
-            elif isinstance(frame, OutputAudioRawFrame):
-                self._on_started()
+            if isinstance(frame, OutputAudioRawFrame):
                 self._on_audio_frame(frame)
-            elif name == "BotStoppedSpeakingFrame" or isinstance(frame, TTSStoppedFrame):
+            elif name == "BotStoppedSpeakingFrame":
                 self._on_stopped()
+        await self.push_frame(frame, direction)
+
+
+class DirectLocalAudioOutput(FrameProcessor):
+    def __init__(self, *, py_audio, sample_rate: int, channels: int, on_speaker_write):
+        super().__init__()
+        self._py_audio = py_audio
+        self._sample_rate = sample_rate
+        self._channels = channels
+        self._on_speaker_write = on_speaker_write
+        self._stream = None
+        self._stream_sample_rate = 0
+        self._stream_channels = 0
+        self._executor = ThreadPoolExecutor(max_workers=1)
+
+    async def cleanup(self):
+        await super().cleanup()
+        if self._stream is not None:
+            await asyncio.to_thread(self._stream.stop_stream)
+            await asyncio.to_thread(self._stream.close)
+            self._stream = None
+        self._executor.shutdown(wait=False, cancel_futures=True)
+
+    async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
+        if direction == FrameDirection.DOWNSTREAM and isinstance(frame, OutputAudioRawFrame):
+            written = await self._write_audio_frame(frame)
+            self._on_speaker_write(frame, written=written)
+        await self.push_frame(frame, direction)
+
+    async def _write_audio_frame(self, frame: OutputAudioRawFrame) -> bool:
+        if not frame.audio:
+            return False
+        sample_rate = frame.sample_rate or self._sample_rate
+        channels = frame.num_channels or self._channels
+        await self._ensure_stream(sample_rate=sample_rate, channels=channels)
+        if self._stream is None:
+            return False
+        await asyncio.get_running_loop().run_in_executor(self._executor, self._stream.write, frame.audio)
+        return True
+
+    async def _ensure_stream(self, *, sample_rate: int, channels: int) -> None:
+        if (
+            self._stream is not None
+            and self._stream_sample_rate == sample_rate
+            and self._stream_channels == channels
+        ):
+            return
+        if self._stream is not None:
+            await asyncio.to_thread(self._stream.stop_stream)
+            await asyncio.to_thread(self._stream.close)
+            self._stream = None
+        self._stream = self._py_audio.open(
+            format=self._py_audio.get_format_from_width(2),
+            channels=channels,
+            rate=sample_rate,
+            output=True,
+        )
+        self._stream.start_stream()
+        self._stream_sample_rate = sample_rate
+        self._stream_channels = channels
 
 
 class LocalAudioRuntimeManager:

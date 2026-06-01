@@ -28,7 +28,7 @@ class XAITTSService(TTSService):
         sample_rate: int | None = None,
         optimize_streaming_latency: int = 1,
         text_normalization: bool = True,
-        output_gain: float = 0.85,
+        output_gain: float = 1.6,
         **kwargs,
     ):
         settings = self.Settings(model="grok-tts", voice=voice_id, language=language)
@@ -44,7 +44,7 @@ class XAITTSService(TTSService):
         self._requested_sample_rate = sample_rate or 24000
         self._optimize_streaming_latency = optimize_streaming_latency
         self._text_normalization = text_normalization
-        self._output_gain = max(0.0, min(1.0, output_gain))
+        self._output_gain = max(0.0, min(4.0, output_gain))
         self._client = httpx.AsyncClient(timeout=httpx.Timeout(30.0, read=60.0))
         self._tts_lock = asyncio.Lock()
 
