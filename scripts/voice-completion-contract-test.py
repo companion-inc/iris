@@ -296,8 +296,10 @@ async def test_completion_policy_helpers() -> None:
     )
     assert infer_agent_delivery("auto", prompt="Run this in the background") == "save"
     assert infer_agent_delivery("speak", prompt="Run this silently") == "silent"
+    assert infer_agent_delivery("auto", prompt="Quit the Granola app.") == "speak"
     assert agent_result_run_id({"requestId": "agent_run_1"}) == "agent_run_1"
     assert agent_result_run_id({"run": {"id": "agent_run_2"}}) == "agent_run_2"
+    assert agent_result_run_id({"runId": "agent_run_3", "requestId": "turn_1"}) == "agent_run_3"
     assert agent_result_status({"status": "inProgress"}) == "running"
 
 

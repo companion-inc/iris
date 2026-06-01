@@ -754,6 +754,9 @@ final class SwiftLocalAPIServer: @unchecked Sendable {
             response["requestId"] = response["requestId"] ?? response["turnId"] ?? response["id"] ?? NSNull()
             response["agentId"] = response["agentId"] ?? agentID ?? NSNull()
             if shouldRecordRun {
+                response["runId"] = response["runId"] ?? runID
+            }
+            if shouldRecordRun {
                 let status = String(describing: response["status"] ?? "").lowercased()
                 if status != "running" && status != "queued" {
                     completeLocalAgentRun(database: database, runID: runID, result: response)

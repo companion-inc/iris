@@ -93,7 +93,7 @@ def infer_agent_delivery(value: Any, *, prompt: str | None, context: str | None 
         return delivery
     if user_requested_saved_delivery(text):
         return "save"
-    return "auto"
+    return "speak"
 
 
 def user_requested_spoken_delivery(text: str) -> bool:

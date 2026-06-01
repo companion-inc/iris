@@ -18,6 +18,7 @@ from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
+from .agent_completion_events import AgentCompletionSubscriber
 from .runtime_events import RuntimeEvents
 from .session import VoiceSessionContext
 from .turns.barge_in import BARGE_IN_VAD_SAMPLE_RATE
@@ -292,6 +293,7 @@ class LocalAudioRuntimeManager:
     def __init__(self):
         self._task: asyncio.Task[None] | None = None
         self._watchdog_task: asyncio.Task[None] | None = None
+        self._completion_task: asyncio.Task[None] | None = None
         self._pipeline_task: PipelineTask | None = None
         self._session: VoiceSessionContext | None = None
         self._events: RuntimeEvents | None = None
@@ -336,6 +338,19 @@ class LocalAudioRuntimeManager:
 
         def on_task_ready(task: PipelineTask) -> None:
             self._pipeline_task = task
+            self._completion_task = asyncio.create_task(
+                AgentCompletionSubscriber(
+                    session=session,
+                    events=self._events,
+                    task=task,
+                    playback_active=transport.is_playback_active,
+                ).run()
+            )
+            logger.info(
+                "iris.voice.local_audio.pipeline_ready session={} device={}",
+                session.session_id,
+                session.device_id,
+            )
 
         async def run() -> None:
             from .pipeline import run_voice_runtime
@@ -387,6 +402,13 @@ class LocalAudioRuntimeManager:
         return await self._stop_pipeline(reason=reason)
 
     async def _stop_pipeline(self, *, reason: str) -> dict[str, Any]:
+        if self._completion_task is not None and not self._completion_task.done():
+            self._completion_task.cancel()
+            try:
+                await self._completion_task
+            except asyncio.CancelledError:
+                pass
+        self._completion_task = None
         if self._pipeline_task is not None:
             try:
                 await asyncio.wait_for(self._pipeline_task.cancel(reason=reason), timeout=2)
