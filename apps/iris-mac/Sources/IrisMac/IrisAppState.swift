@@ -293,12 +293,16 @@ final class IrisAppState {
         openAIAPIKeyConfigured = secrets.configured(.openAIAPIKey)
     }
 
+    func secretValue(_ kind: NativeSecretKind) -> String {
+        secrets.read(kind) ?? ""
+    }
+
     func saveSecrets(deepgram: String, gemini: String, xai: String, openAI: String) {
         do {
-            try saveSecretIfPresent(.deepgramAPIKey, value: deepgram)
-            try saveSecretIfPresent(.geminiAPIKey, value: gemini)
-            try saveSecretIfPresent(.xaiAPIKey, value: xai)
-            try saveSecretIfPresent(.openAIAPIKey, value: openAI)
+            try secrets.write(deepgram, for: .deepgramAPIKey)
+            try secrets.write(gemini, for: .geminiAPIKey)
+            try secrets.write(xai, for: .xaiAPIKey)
+            try secrets.write(openAI, for: .openAIAPIKey)
             refreshSecretStatus()
             settingsStatus = "Provider keys saved locally"
             supervisor.lastError = nil
@@ -394,12 +398,6 @@ final class IrisAppState {
             settingsStatus = error.localizedDescription
             supervisor.lastError = error.localizedDescription
         }
-    }
-
-    private func saveSecretIfPresent(_ kind: NativeSecretKind, value: String) throws {
-        let normalized = value.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !normalized.isEmpty else { return }
-        try secrets.write(normalized, for: kind)
     }
 
     private func waitForVoiceSidecar() async {

@@ -271,10 +271,13 @@ private struct ProviderKeysSheet: View {
                 ForEach(selectedSecretKinds, id: \.self) { kind in
                     SecretField(
                         title: kind.displayName,
-                        placeholder: secretConfigured(kind) ? "Configured" : kind.environmentName,
+                        placeholder: kind.environmentName,
                         text: secretBinding(kind),
                         configured: secretConfigured(kind),
-                        clear: { appState.clearSecret(kind) }
+                        clear: {
+                            appState.clearSecret(kind)
+                            clearDraft(kind)
+                        }
                     )
                 }
             }
@@ -287,7 +290,6 @@ private struct ProviderKeysSheet: View {
                         xai: xaiAPIKey,
                         openAI: openAIAPIKey
                     )
-                    clearDrafts()
                 }
                 Button("Apply and restart services") {
                     Task {
@@ -300,6 +302,7 @@ private struct ProviderKeysSheet: View {
         }
         .padding(24)
         .frame(width: 640)
+        .onAppear(perform: loadSavedSecrets)
     }
 
     private func secretBinding(_ kind: NativeSecretKind) -> Binding<String> {
@@ -327,12 +330,22 @@ private struct ProviderKeysSheet: View {
         kinds.append(kind)
     }
 
-    private func clearDrafts() {
-        deepgramAPIKey = ""
-        geminiAPIKey = ""
-        xaiAPIKey = ""
-        openAIAPIKey = ""
+    private func loadSavedSecrets() {
+        deepgramAPIKey = appState.secretValue(.deepgramAPIKey)
+        geminiAPIKey = appState.secretValue(.geminiAPIKey)
+        xaiAPIKey = appState.secretValue(.xaiAPIKey)
+        openAIAPIKey = appState.secretValue(.openAIAPIKey)
     }
+
+    private func clearDraft(_ kind: NativeSecretKind) {
+        switch kind {
+        case .deepgramAPIKey: deepgramAPIKey = ""
+        case .geminiAPIKey: geminiAPIKey = ""
+        case .xaiAPIKey: xaiAPIKey = ""
+        case .openAIAPIKey: openAIAPIKey = ""
+        }
+    }
+
 }
 
 private struct SecretField: View {
@@ -341,14 +354,30 @@ private struct SecretField: View {
     @Binding var text: String
     var configured: Bool
     var clear: () -> Void
+    @State private var isRevealed = false
 
     var body: some View {
         HStack(alignment: .center, spacing: 12) {
             Text(title)
                 .foregroundStyle(.secondary)
                 .frame(width: 110, alignment: .leading)
-            SecureField(placeholder, text: $text)
-                .textFieldStyle(.roundedBorder)
+            Group {
+                if isRevealed {
+                    TextField(placeholder, text: $text)
+                } else {
+                    SecureField(placeholder, text: $text)
+                }
+            }
+            .textFieldStyle(.roundedBorder)
+            Button {
+                isRevealed.toggle()
+            } label: {
+                Image(systemName: isRevealed ? "eye.slash" : "eye")
+                    .frame(width: 18)
+            }
+            .buttonStyle(.borderless)
+            .help(isRevealed ? "Hide key" : "Show key")
+            .disabled(text.isEmpty)
             Text(configured ? "Saved" : "Missing")
                 .font(.caption.weight(.medium))
                 .foregroundStyle(configured ? .green : .secondary)
