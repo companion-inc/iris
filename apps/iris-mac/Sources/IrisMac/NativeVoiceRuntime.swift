@@ -161,7 +161,10 @@ final class NativeVoiceRuntime {
     private func handleTranscriptEvent(_ object: [String: Any], isInterim: Bool) {
         guard let text = object["text"] as? String else { return }
         let timestamp = object["at"] as? Double
-        let speakerName = object["speaker"] as? String
+        let speakerName = Self.displaySpeakerName(
+            speaker: object["speaker"] as? String,
+            displayName: object["speakerDisplayName"] as? String
+        )
         handleTranscriptText(text, isInterim: isInterim, speakerName: speakerName, timestamp: timestamp)
     }
 
@@ -288,7 +291,18 @@ final class NativeVoiceRuntime {
             handleTranscriptText(
                 text,
                 isInterim: event.type == "transcript.interim",
-                speakerName: nil,
+                speakerName: Self.displaySpeakerName(
+                    speaker: event.speaker,
+                    displayName: event.speakerDisplayName
+                ),
+                timestamp: event.at
+            )
+        case "assistant.turn.stopped":
+            guard let text = event.text else { return }
+            handleTranscriptText(
+                text,
+                isInterim: false,
+                speakerName: "Iris",
                 timestamp: event.at
             )
         case "assistant.audio.started":
@@ -305,7 +319,23 @@ final class NativeVoiceRuntime {
     }
 
     private func localAudioEventKey(_ event: LocalAudioRuntimeEvent) -> String {
-        "\(event.at ?? 0):\(event.type):\(event.text ?? ""):\(event.reason ?? "")"
+        "\(event.at ?? 0):\(event.type):\(event.text ?? ""):\(event.reason ?? ""):\(event.speaker ?? ""):\(event.speakerDisplayName ?? "")"
+    }
+
+    private static func displaySpeakerName(speaker: String?, displayName: String?) -> String? {
+        if let displayName = displayName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !displayName.isEmpty {
+            return displayName
+        }
+        guard let speaker = speaker?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !speaker.isEmpty else {
+            return nil
+        }
+        if speaker.hasPrefix("SPEAKER_"),
+           let index = Int(speaker.dropFirst("SPEAKER_".count)) {
+            return "Speaker \(index + 1)"
+        }
+        return speaker
     }
 }
 

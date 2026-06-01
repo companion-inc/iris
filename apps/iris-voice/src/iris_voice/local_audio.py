@@ -398,6 +398,10 @@ class LocalAudioRuntimeManager:
                 "type": event_type,
                 "text": event.get("text"),
                 "reason": event.get("reason"),
+                "speaker": event.get("speaker"),
+                "speakerDisplayName": event.get("speakerDisplayName"),
+                "speakerUserId": event.get("speakerUserId"),
+                "speakerConfidence": event.get("speakerConfidence"),
                 "at": now,
             }
         )

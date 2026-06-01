@@ -99,6 +99,10 @@ struct LocalAudioRuntimeEvent: Decodable, Equatable {
     var type: String
     var text: String?
     var reason: String?
+    var speaker: String? = nil
+    var speakerDisplayName: String? = nil
+    var speakerUserId: String? = nil
+    var speakerConfidence: Double? = nil
     var at: Double?
 }
 
