@@ -7,7 +7,13 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from loguru import logger
-from pipecat.frames.frames import Frame, OutputAudioRawFrame
+from pipecat.frames.frames import (
+    Frame,
+    InterruptionFrame,
+    OutputAudioRawFrame,
+    TTSStartedFrame,
+    TTSStoppedFrame,
+)
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
@@ -66,6 +72,7 @@ class LocalAudioRuntimeTransport:
                         events=self._events,
                         on_started=self._mark_playback_started,
                         on_stopped=self._mark_playback_stopped,
+                        on_interrupted=self._mark_playback_interrupted,
                         on_audio_frame=self._mark_audio_frame,
                     ),
                     self._direct_output,
@@ -99,6 +106,13 @@ class LocalAudioRuntimeTransport:
         if self._playback_active:
             logger.info("iris.voice.local_audio.playback_stopped")
             self._events.emit({"type": "assistant.audio.stopped", "reason": "completed"})
+        self._playback_active = False
+        self._playback_active_until = time.monotonic() + LOCAL_PLAYBACK_ECHO_TAIL_SECONDS
+
+    def _mark_playback_interrupted(self) -> None:
+        if self._playback_active:
+            logger.info("iris.voice.local_audio.playback_interrupted")
+            self._events.emit({"type": "assistant.audio.stopped", "reason": "interruption"})
         self._playback_active = False
         self._playback_active_until = time.monotonic() + LOCAL_PLAYBACK_ECHO_TAIL_SECONDS
 
@@ -144,21 +158,26 @@ class LocalAudioRuntimeTransport:
 
 
 class LocalPlaybackStateTracker(FrameProcessor):
-    def __init__(self, *, events: RuntimeEvents, on_started, on_stopped, on_audio_frame):
+    def __init__(self, *, events: RuntimeEvents, on_started, on_stopped, on_interrupted, on_audio_frame):
         super().__init__()
         self._events = events
         self._on_started = on_started
         self._on_stopped = on_stopped
+        self._on_interrupted = on_interrupted
         self._on_audio_frame = on_audio_frame
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if direction == FrameDirection.DOWNSTREAM:
             name = frame.__class__.__name__
-            if isinstance(frame, OutputAudioRawFrame):
+            if isinstance(frame, TTSStartedFrame):
+                self._on_started()
+            elif isinstance(frame, OutputAudioRawFrame):
                 self._on_audio_frame(frame)
             elif name == "BotStoppedSpeakingFrame":
                 self._on_stopped()
+            elif isinstance(frame, InterruptionFrame):
+                self._on_interrupted()
         await self.push_frame(frame, direction)
 
 
@@ -173,6 +192,8 @@ class DirectLocalAudioOutput(FrameProcessor):
         self._stream_sample_rate = 0
         self._stream_channels = 0
         self._executor = ThreadPoolExecutor(max_workers=1)
+        self._drop_audio_until_tts_stop = False
+        self._dropped_interrupted_audio_frames = 0
 
     async def cleanup(self):
         await super().cleanup()
@@ -184,7 +205,26 @@ class DirectLocalAudioOutput(FrameProcessor):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if direction == FrameDirection.DOWNSTREAM and isinstance(frame, OutputAudioRawFrame):
+        if direction == FrameDirection.DOWNSTREAM and isinstance(frame, InterruptionFrame):
+            self._drop_audio_until_tts_stop = True
+            self._dropped_interrupted_audio_frames = 0
+            await self._close_stream(reason="interruption")
+        elif direction == FrameDirection.DOWNSTREAM and isinstance(frame, TTSStoppedFrame):
+            self._drop_audio_until_tts_stop = False
+        elif direction == FrameDirection.DOWNSTREAM and isinstance(frame, OutputAudioRawFrame):
+            if self._drop_audio_until_tts_stop:
+                self._dropped_interrupted_audio_frames += 1
+                if (
+                    self._dropped_interrupted_audio_frames == 1
+                    or self._dropped_interrupted_audio_frames % 50 == 0
+                ):
+                    logger.info(
+                        "iris.voice.local_audio.output_dropped_after_interruption frames={}",
+                        self._dropped_interrupted_audio_frames,
+                    )
+                self._on_speaker_write(frame, written=False)
+                await self.push_frame(frame, direction)
+                return
             written = await self._write_audio_frame(frame)
             self._on_speaker_write(frame, written=written)
         await self.push_frame(frame, direction)
@@ -208,8 +248,7 @@ class DirectLocalAudioOutput(FrameProcessor):
         ):
             return
         if self._stream is not None:
-            await asyncio.to_thread(self._stream.stop_stream)
-            await asyncio.to_thread(self._stream.close)
+            await self._close_stream(reason="format_change")
             self._stream = None
         self._stream = self._py_audio.open(
             format=self._py_audio.get_format_from_width(2),
@@ -220,6 +259,16 @@ class DirectLocalAudioOutput(FrameProcessor):
         self._stream.start_stream()
         self._stream_sample_rate = sample_rate
         self._stream_channels = channels
+
+    async def _close_stream(self, *, reason: str) -> None:
+        if self._stream is None:
+            return
+        logger.info("iris.voice.local_audio.stream_closed reason={}", reason)
+        await asyncio.to_thread(self._stream.stop_stream)
+        await asyncio.to_thread(self._stream.close)
+        self._stream = None
+        self._stream_sample_rate = 0
+        self._stream_channels = 0
 
 
 class LocalAudioRuntimeManager:

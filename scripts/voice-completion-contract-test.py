@@ -22,6 +22,7 @@ from iris_voice.agent_completion_events import (  # noqa: E402
 import iris_voice.agent_completion_events as agent_completion_events  # noqa: E402
 import iris_voice.completion_delivery_scheduler as completion_delivery_scheduler  # noqa: E402
 from iris_voice.agent_bridge import infer_agent_delivery  # noqa: E402
+from iris_voice.local_audio import DirectLocalAudioOutput, LocalPlaybackStateTracker  # noqa: E402
 from iris_voice.runtime_events import RuntimeEvents  # noqa: E402
 from iris_voice.session import VoiceSessionContext  # noqa: E402
 from iris_voice.prompt import system_instruction  # noqa: E402
@@ -42,7 +43,14 @@ from iris_voice.turns.wake import (  # noqa: E402
 )
 from iris_voice.turns.playback_echo import PlaybackEchoGuard  # noqa: E402
 from iris_voice.turns.playback_wake_gate import PlaybackWakeGateUserTurnStartStrategy  # noqa: E402
-from pipecat.frames.frames import InterimTranscriptionFrame, TranscriptionFrame  # noqa: E402
+from pipecat.frames.frames import (  # noqa: E402
+    InterruptionFrame,
+    OutputAudioRawFrame,
+    TTSStartedFrame,
+    TTSStoppedFrame,
+    InterimTranscriptionFrame,
+    TranscriptionFrame,
+)
 from pipecat.processors.aggregators.llm_context import LLMContext  # noqa: E402
 from pipecat.processors.frame_processor import FrameDirection  # noqa: E402
 from pipecat.services.llm_service import FunctionCallParams  # noqa: E402
@@ -500,6 +508,53 @@ async def test_playback_echo_guard_only_filters_assistant_text() -> None:
     assert not guard.is_playback_echo(transcription("Find benchmarks for Reducto", speaker=0))
 
 
+async def test_local_playback_is_active_at_tts_start() -> None:
+    events = RuntimeEvents(
+        FakeWebSocket(),
+        VoiceSessionContext(
+            session_id="test",
+            device_id="test",
+            user_id="user",
+            organization_id="org",
+            source="test",
+            sample_rate=16000,
+            channels=1,
+        ),
+    )
+    calls: list[str] = []
+    tracker = LocalPlaybackStateTracker(
+        events=events,
+        on_started=lambda: calls.append("started"),
+        on_stopped=lambda: calls.append("stopped"),
+        on_interrupted=lambda: calls.append("interrupted"),
+        on_audio_frame=lambda _frame: calls.append("audio"),
+    )
+
+    await tracker.process_frame(TTSStartedFrame(context_id="ctx"), FrameDirection.DOWNSTREAM)
+    await tracker.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
+
+    assert calls == ["started", "interrupted"]
+
+
+async def test_local_audio_output_drops_frames_after_interruption() -> None:
+    writes: list[bool] = []
+    output = DirectLocalAudioOutput(
+        py_audio=None,
+        sample_rate=16000,
+        channels=1,
+        on_speaker_write=lambda _frame, *, written: writes.append(written),
+    )
+
+    await output.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
+    await output.process_frame(
+        OutputAudioRawFrame(audio=b"\x00\x00" * 160, sample_rate=16000, num_channels=1),
+        FrameDirection.DOWNSTREAM,
+    )
+    await output.process_frame(TTSStoppedFrame(context_id="ctx"), FrameDirection.DOWNSTREAM)
+
+    assert writes == [False]
+
+
 async def test_noop_tool_finishes_without_running_llm() -> None:
     llm = FakeLLM()
     websocket = FakeWebSocket()
@@ -827,6 +882,8 @@ async def main() -> None:
     await test_playback_wake_interrupt_does_not_need_downstream_addressing()
     await test_playback_wake_interrupt_requires_leading_wake_phrase()
     await test_playback_echo_guard_only_filters_assistant_text()
+    await test_local_playback_is_active_at_tts_start()
+    await test_local_audio_output_drops_frames_after_interruption()
     await test_noop_tool_finishes_without_running_llm()
     await test_transcript_relay_marks_post_wake_turn_before_downstream_wake_event()
     await test_regular_turn_strategy_accepts_assistant_followup_after_question()
