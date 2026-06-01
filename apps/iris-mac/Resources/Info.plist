@@ -19,7 +19,7 @@
   <key>CFBundleVersion</key>
   <string>1</string>
   <key>IRISReleaseTag</key>
-  <string>iris-macos-v0.1.0-20260601</string>
+  <string>iris-macos-v0.1.0-20260601-2</string>
   <key>LSMinimumSystemVersion</key>
   <string>14.0</string>
   <key>NSSupportsAutomaticTermination</key>

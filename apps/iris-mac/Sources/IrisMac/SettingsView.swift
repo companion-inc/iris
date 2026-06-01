@@ -77,6 +77,54 @@ struct SettingsView: View {
                 SettingsRow(title: "Bridge PID", value: appState.bridgeHealth.codex?.runtime?.pid.map(String.init) ?? "Unknown")
             }
 
+            SectionBlock(title: "Speech") {
+                VStack(alignment: .leading, spacing: 12) {
+                    Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 12) {
+                        GridRow {
+                            Text("STT")
+                                .foregroundStyle(.secondary)
+                            Picker("STT", selection: Bindable(appState.settings).sttProvider) {
+                                Text("Deepgram").tag("deepgram")
+                                Text("OpenAI").tag("openai")
+                            }
+                            .labelsHidden()
+                        }
+                        GridRow {
+                            Text("Language")
+                                .foregroundStyle(.secondary)
+                            Picker("Language", selection: Bindable(appState.settings).sttLanguage) {
+                                Text("English").tag("en")
+                                Text("Multilingual").tag("multi")
+                            }
+                            .labelsHidden()
+                        }
+                        GridRow(alignment: .top) {
+                            Text("Vocabulary")
+                                .foregroundStyle(.secondary)
+                            TextEditor(text: Bindable(appState.settings).sttKeyterms)
+                                .font(.body)
+                                .frame(minHeight: 78)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: 6)
+                                        .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                                }
+                        }
+                    }
+                    HStack {
+                        Button("Apply and restart voice") {
+                            Task {
+                                appState.supervisor.stopAll()
+                                await appState.applySettings()
+                                await appState.startNativeVoiceIfPossible()
+                            }
+                        }
+                        Text("Built in: Iris, Advait, Paliwal")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             SectionBlock(title: "Local services") {
                 TextField("API URL", text: Bindable(appState.settings).apiURL)
                     .textFieldStyle(.roundedBorder)
@@ -196,35 +244,6 @@ private struct ProviderKeysSheet: View {
             }
 
             Grid(alignment: .leading, horizontalSpacing: 14, verticalSpacing: 12) {
-                GridRow {
-                    Text("STT")
-                        .foregroundStyle(.secondary)
-                    Picker("STT", selection: Bindable(appState.settings).sttProvider) {
-                        Text("Deepgram").tag("deepgram")
-                        Text("OpenAI").tag("openai")
-                    }
-                    .labelsHidden()
-                }
-                GridRow {
-                    Text("Language")
-                        .foregroundStyle(.secondary)
-                    Picker("Language", selection: Bindable(appState.settings).sttLanguage) {
-                        Text("English").tag("en")
-                        Text("Multilingual").tag("multi")
-                    }
-                    .labelsHidden()
-                }
-                GridRow(alignment: .top) {
-                    Text("Vocabulary")
-                        .foregroundStyle(.secondary)
-                    TextEditor(text: Bindable(appState.settings).sttKeyterms)
-                        .font(.body)
-                        .frame(minHeight: 72)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: 6)
-                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
-                        }
-                }
                 GridRow {
                     Text("LLM")
                         .foregroundStyle(.secondary)
