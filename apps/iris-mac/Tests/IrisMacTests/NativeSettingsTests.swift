@@ -35,11 +35,13 @@ final class NativeSettingsTests: XCTestCase {
         settings.sttProvider = "openai"
         settings.llmProvider = "openai"
         settings.ttsProvider = "deepgram"
+        settings.sttKeyterms = "Iris, Advait, Reducto"
 
         let reloaded = NativeSettings(defaults: defaults)
 
         XCTAssertEqual(reloaded.sttProvider, "openai")
         XCTAssertEqual(reloaded.llmProvider, "openai")
         XCTAssertEqual(reloaded.ttsProvider, "deepgram")
+        XCTAssertEqual(reloaded.sttKeyterms, "Iris, Advait, Reducto")
     }
 }

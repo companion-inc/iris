@@ -214,6 +214,17 @@ private struct ProviderKeysSheet: View {
                     }
                     .labelsHidden()
                 }
+                GridRow(alignment: .top) {
+                    Text("Vocabulary")
+                        .foregroundStyle(.secondary)
+                    TextEditor(text: Bindable(appState.settings).sttKeyterms)
+                        .font(.body)
+                        .frame(minHeight: 72)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 6)
+                                .stroke(Color(nsColor: .separatorColor), lineWidth: 1)
+                        }
+                }
                 GridRow {
                     Text("LLM")
                         .foregroundStyle(.secondary)

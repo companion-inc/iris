@@ -44,6 +44,12 @@ final class NativeSettings {
         }
     }
 
+    var sttKeyterms: String {
+        didSet {
+            defaults.set(sttKeyterms, forKey: Keys.sttKeyterms)
+        }
+    }
+
     var llmProvider: String {
         didSet {
             defaults.set(llmProvider, forKey: Keys.llmProvider)
@@ -70,6 +76,7 @@ final class NativeSettings {
         bridgeURL = defaults.string(forKey: Keys.bridgeURL) ?? Self.defaultBridgeURL
         sttProvider = defaults.string(forKey: Keys.sttProvider) ?? "deepgram"
         sttLanguage = defaults.string(forKey: Keys.sttLanguage) ?? "en"
+        sttKeyterms = defaults.string(forKey: Keys.sttKeyterms) ?? ""
         llmProvider = defaults.string(forKey: Keys.llmProvider) ?? "gemini"
         ttsProvider = defaults.string(forKey: Keys.ttsProvider) ?? "xai"
     }
@@ -81,6 +88,7 @@ final class NativeSettings {
         bridgeURL = Self.defaultBridgeURL
         sttProvider = "deepgram"
         sttLanguage = "en"
+        sttKeyterms = ""
         llmProvider = "gemini"
         ttsProvider = "xai"
     }
@@ -122,6 +130,7 @@ final class NativeSettings {
         static let bridgeURL = "bridgeURL"
         static let sttProvider = "sttProvider"
         static let sttLanguage = "sttLanguage"
+        static let sttKeyterms = "sttKeyterms"
         static let llmProvider = "llmProvider"
         static let ttsProvider = "ttsProvider"
     }

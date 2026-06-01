@@ -428,6 +428,7 @@ final class IrisAppState {
         var environment = secrets.environment()
         environment["IRIS_STT_PROVIDER"] = settings.sttProvider
         environment["IRIS_STT_LANGUAGE"] = settings.sttLanguage
+        environment["IRIS_STT_KEYTERMS"] = settings.sttKeyterms
         environment["IRIS_LLM_PROVIDER"] = settings.llmProvider
         environment["IRIS_TTS_PROVIDER"] = settings.ttsProvider
         return environment

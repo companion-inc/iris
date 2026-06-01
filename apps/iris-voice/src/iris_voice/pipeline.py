@@ -67,6 +67,8 @@ from .turns.wake import (
 
 BUILTIN_STT_KEYTERMS = [
     "Iris",
+    "Advait",
+    "Paliwal",
     "stop",
     "cancel",
     "never mind",
