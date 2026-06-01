@@ -17,7 +17,7 @@ from .session import VoiceSessionContext
 from .turns.barge_in import BARGE_IN_VAD_SAMPLE_RATE
 
 
-LOCAL_PLAYBACK_ECHO_TAIL_SECONDS = 3.0
+LOCAL_PLAYBACK_ECHO_TAIL_SECONDS = 0.5
 
 
 class LocalRuntimeWebSocket:

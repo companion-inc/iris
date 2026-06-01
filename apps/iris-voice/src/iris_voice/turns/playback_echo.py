@@ -3,7 +3,6 @@ from __future__ import annotations
 import re
 import time
 from collections.abc import Callable
-from typing import Any
 
 from pipecat.frames.frames import InterimTranscriptionFrame, TranscriptionFrame
 
@@ -40,7 +39,6 @@ class PlaybackEchoGuard:
     ):
         self._playback_active = playback_active
         self._assistant_text = ""
-        self._echo_speakers: set[str] = set()
         self._echo_tail_seconds = max(0.0, echo_tail_seconds)
         self._assistant_match_seconds = max(self._echo_tail_seconds, assistant_match_seconds)
         self._last_playback_seen_at = 0.0
@@ -69,33 +67,20 @@ class PlaybackEchoGuard:
 
     def reset_assistant_text(self) -> None:
         self._assistant_text = ""
-        self._echo_speakers.clear()
 
     def is_playback_echo(
         self,
         frame: InterimTranscriptionFrame | TranscriptionFrame,
     ) -> bool:
         in_echo_window = self.in_playback_echo_window()
-        if not in_echo_window:
-            self._echo_speakers.clear()
-
         transcript = _normalize(frame.text)
         if not transcript:
             return False
 
-        speaker = _speaker_label(frame)
-        if speaker and speaker in self._echo_speakers:
-            return True
-
         if _is_wake_only(transcript):
             return False
 
-        if self._matches_assistant_text(transcript):
-            if speaker:
-                self._echo_speakers.add(speaker)
-            return True
-
-        return False
+        return self._matches_assistant_text(transcript)
 
     def _matches_assistant_text(self, transcript: str) -> bool:
         if not self._assistant_text:
@@ -114,35 +99,5 @@ class PlaybackEchoGuard:
         return overlap / len(transcript_words) >= 0.8
 
 
-def _speaker_label(frame: InterimTranscriptionFrame | TranscriptionFrame) -> str | None:
-    result = getattr(frame, "result", None)
-    channel = getattr(result, "channel", None)
-    alternatives = getattr(channel, "alternatives", None)
-    if not alternatives:
-        return None
-    words = getattr(alternatives[0], "words", None) or []
-    for word in words:
-        speaker = _word_value(word, "speaker")
-        if isinstance(speaker, bool) or speaker is None:
-            continue
-        if isinstance(speaker, int):
-            return f"SPEAKER_{speaker}"
-        if isinstance(speaker, float) and speaker.is_integer():
-            return f"SPEAKER_{int(speaker)}"
-        if isinstance(speaker, str) and speaker.strip().isdigit():
-            return f"SPEAKER_{speaker.strip()}"
-    return None
-
-
 def _is_wake_only(transcript: str) -> bool:
     return transcript == "iris"
-
-
-def _word_value(value: Any, key: str) -> Any:
-    if isinstance(value, dict):
-        return value.get(key)
-    if hasattr(value, "model_dump"):
-        dumped = value.model_dump()
-        if isinstance(dumped, dict) and key in dumped:
-            return dumped.get(key)
-    return getattr(value, key, None)
