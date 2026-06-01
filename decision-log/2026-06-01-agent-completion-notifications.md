@@ -19,7 +19,9 @@
 - `uv run ../../scripts/voice-completion-contract-test.py` passed.
 - `pnpm voice:check` passed.
 - `swift build` in `apps/iris-mac` passed.
-- `swift test` compiled app/test sources but failed at the SwiftPM test runner link step because this local Xcode/SwiftPM setup could not link the `Testing` library.
+- `swift test` initially compiled app/test sources but failed at the SwiftPM test runner link step because SwiftPM generated a Swift Testing runner without linking `Testing.framework`.
+- Added explicit `Testing.framework` linkage to the SwiftPM test target; `swift test` now passes 13 XCTest tests with 0 failures.
+- The voice completion contract test no longer emits Pipecat error/traceback/runtime-warning output from direct local-audio processor tests; those tests now exercise the local state handlers directly.
 - Reinstalled and reopened Iris with `pnpm mac:open`.
 - Started native voice through `/debug/native-voice/start`; logs showed `iris.voice.local_audio.pipeline_ready` and `iris.voice.agent_completion_subscribed ... transport=polling`.
 - Triggered run `agent_run_31cc008b76d746a1bfd9a3e8e79786bc`; completion `agent_completion_e9cbb369e4cd4d2ba63785952136c019` was enqueued, injected, spoken via XAI TTS, and marked delivered at `2026-06-01T06:56:25.602Z`.

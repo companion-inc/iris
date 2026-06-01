@@ -532,8 +532,8 @@ async def test_local_playback_is_active_at_tts_start() -> None:
         on_audio_frame=lambda _frame: calls.append("audio"),
     )
 
-    await tracker.process_frame(TTSStartedFrame(context_id="ctx"), FrameDirection.DOWNSTREAM)
-    await tracker.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
+    tracker.handle_downstream_frame(TTSStartedFrame(context_id="ctx"))
+    tracker.handle_downstream_frame(InterruptionFrame())
 
     assert calls == ["started", "interrupted"]
 
@@ -547,12 +547,11 @@ async def test_local_audio_output_drops_frames_after_interruption() -> None:
         on_speaker_write=lambda _frame, *, written: writes.append(written),
     )
 
-    await output.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
-    await output.process_frame(
+    await output.handle_downstream_frame(InterruptionFrame())
+    await output.handle_downstream_frame(
         OutputAudioRawFrame(audio=b"\x00\x00" * 160, sample_rate=16000, num_channels=1),
-        FrameDirection.DOWNSTREAM,
     )
-    await output.process_frame(TTSStoppedFrame(context_id="ctx"), FrameDirection.DOWNSTREAM)
+    await output.handle_downstream_frame(TTSStoppedFrame(context_id="ctx"))
 
     assert writes == [False]
 
@@ -566,12 +565,11 @@ async def test_local_audio_output_resumes_on_next_tts_start() -> None:
         on_speaker_write=lambda _frame, *, written: writes.append(written),
     )
 
-    await output.process_frame(InterruptionFrame(), FrameDirection.DOWNSTREAM)
-    await output.process_frame(
+    await output.handle_downstream_frame(InterruptionFrame())
+    await output.handle_downstream_frame(
         OutputAudioRawFrame(audio=b"\x00\x00" * 160, sample_rate=16000, num_channels=1),
-        FrameDirection.DOWNSTREAM,
     )
-    await output.process_frame(TTSStartedFrame(context_id="next"), FrameDirection.DOWNSTREAM)
+    await output.handle_downstream_frame(TTSStartedFrame(context_id="next"))
     assert output._drop_audio_until_tts_stop is False  # noqa: SLF001
     assert writes == [False]
 

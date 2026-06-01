@@ -170,16 +170,19 @@ class LocalPlaybackStateTracker(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if direction == FrameDirection.DOWNSTREAM:
-            name = frame.__class__.__name__
-            if isinstance(frame, TTSStartedFrame):
-                self._on_started()
-            elif isinstance(frame, OutputAudioRawFrame):
-                self._on_audio_frame(frame)
-            elif name == "BotStoppedSpeakingFrame":
-                self._on_stopped()
-            elif isinstance(frame, InterruptionFrame):
-                self._on_interrupted()
+            self.handle_downstream_frame(frame)
         await self.push_frame(frame, direction)
+
+    def handle_downstream_frame(self, frame: Frame) -> None:
+        name = frame.__class__.__name__
+        if isinstance(frame, TTSStartedFrame):
+            self._on_started()
+        elif isinstance(frame, OutputAudioRawFrame):
+            self._on_audio_frame(frame)
+        elif name == "BotStoppedSpeakingFrame":
+            self._on_stopped()
+        elif isinstance(frame, InterruptionFrame):
+            self._on_interrupted()
 
 
 class DirectLocalAudioOutput(FrameProcessor):
@@ -204,16 +207,24 @@ class DirectLocalAudioOutput(FrameProcessor):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
-        if direction == FrameDirection.DOWNSTREAM and isinstance(frame, TTSStartedFrame):
+        if direction == FrameDirection.DOWNSTREAM:
+            handled = await self.handle_downstream_frame(frame)
+            if handled:
+                await self.push_frame(frame, direction)
+                return
+        await self.push_frame(frame, direction)
+
+    async def handle_downstream_frame(self, frame: Frame) -> bool:
+        if isinstance(frame, TTSStartedFrame):
             self._drop_audio_until_tts_stop = False
             self._dropped_interrupted_audio_frames = 0
-        elif direction == FrameDirection.DOWNSTREAM and isinstance(frame, InterruptionFrame):
+        elif isinstance(frame, InterruptionFrame):
             self._drop_audio_until_tts_stop = True
             self._dropped_interrupted_audio_frames = 0
             await self._close_stream(reason="interruption")
-        elif direction == FrameDirection.DOWNSTREAM and isinstance(frame, TTSStoppedFrame):
+        elif isinstance(frame, TTSStoppedFrame):
             self._drop_audio_until_tts_stop = False
-        elif direction == FrameDirection.DOWNSTREAM and isinstance(frame, OutputAudioRawFrame):
+        elif isinstance(frame, OutputAudioRawFrame):
             if self._drop_audio_until_tts_stop:
                 self._dropped_interrupted_audio_frames += 1
                 if (
@@ -225,11 +236,10 @@ class DirectLocalAudioOutput(FrameProcessor):
                         self._dropped_interrupted_audio_frames,
                     )
                 self._on_speaker_write(frame, written=False)
-                await self.push_frame(frame, direction)
-                return
+                return True
             written = await self._write_audio_frame(frame)
             self._on_speaker_write(frame, written=written)
-        await self.push_frame(frame, direction)
+        return False
 
     async def _write_audio_frame(self, frame: OutputAudioRawFrame) -> bool:
         if not frame.audio:

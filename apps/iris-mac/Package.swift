@@ -21,7 +21,10 @@ let package = Package(
         .testTarget(
             name: "IrisMacTests",
             dependencies: ["IrisMac"],
-            path: "Tests/IrisMacTests"
+            path: "Tests/IrisMacTests",
+            linkerSettings: [
+                .linkedFramework("Testing")
+            ]
         )
     ]
 )
