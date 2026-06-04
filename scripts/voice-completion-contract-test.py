@@ -448,12 +448,25 @@ async def test_system_prompt_treats_user_turns_as_imperfect_speech() -> None:
     assert "too garbled to recover a request" in prompt
     assert "[inhale]" in prompt
     assert "Speech tags are available" in prompt
+    assert "Pick the lowest-latency tool that fully satisfies the request" in prompt
+    assert "Use shell_exec for direct, safe, one-step local commands" in prompt
+    assert "Use shell_exec for explicit named-app launches" in prompt
+    assert "simple built-in Iris capabilities" in prompt
+    assert "Current web/docs research, code debugging, or multi-step desktop work" in prompt
     assert "Before calling agent, rewrite the spoken turn" in prompt
     assert "Do not pass a raw transcript through as the agent prompt" in prompt
+    assert "open Safari" not in prompt
+    assert "open DoorDash" not in prompt
 
     schema = basic_voice_tools()
+    shell_tool = next(tool for tool in schema.standard_tools if tool.name == "shell_exec")
+    assert "open a named Mac app with open -a" in shell_tool.description
+    assert "opening apps" not in shell_tool.description
     agent_tool = next(tool for tool in schema.standard_tools if tool.name == "agent")
     assert "Rewrite the user's spoken request" in agent_tool.properties["prompt"]["description"]
+    assert "Do not use agent when a regular Iris tool can fully handle the request" in agent_tool.description
+    assert "Use shell_exec instead for safe" in agent_tool.description
+    assert "open a named Mac app with open -a" in agent_tool.description
 
 
 async def test_playback_wake_interrupt_allows_interruption_command() -> None:

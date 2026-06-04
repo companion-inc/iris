@@ -29,6 +29,7 @@ final class NativeVoiceRuntimeTests: XCTestCase {
 
     func testVoiceEventSoundEffectMappingIncludesAgentCompletionEvents() {
         XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "wake.accepted"), "wake")
+        XCTAssertNil(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "wake.detected"))
         XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "speaker.identified"), "speaker")
         XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "sound.recognition.detected"), "sound")
         XCTAssertEqual(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "tool.started"), "tool")

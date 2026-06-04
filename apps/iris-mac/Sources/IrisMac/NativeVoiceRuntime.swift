@@ -7,7 +7,7 @@ import SwiftUI
 final class NativeVoiceRuntime {
     private let api: IrisAPI
     private var audioPlayer: AVAudioPlayer?
-    private var soundEffectPlayer: AVAudioPlayer?
+    private var soundEffectPlayers: [AVAudioPlayer] = []
     private var soundEffectLastPlayed: [String: TimeInterval] = [:]
     private(set) var sessionID: String?
     private(set) var isRunning = false
@@ -45,8 +45,8 @@ final class NativeVoiceRuntime {
     func stop() {
         audioPlayer?.stop()
         audioPlayer = nil
-        soundEffectPlayer?.stop()
-        soundEffectPlayer = nil
+        soundEffectPlayers.forEach { $0.stop() }
+        soundEffectPlayers.removeAll()
         if isRunning {
             Task { [api] in
                 _ = try? await api.stopLocalAudio(reason: "swift_ui_stop")
@@ -144,7 +144,7 @@ final class NativeVoiceRuntime {
 
     nonisolated private static func soundEffect(forVoiceEvent type: String) -> NativeVoiceSoundEffect? {
         switch type {
-        case "wake.accepted", "wake.detected":
+        case "wake.accepted":
             return .wake
         case "speaker.identified":
             return .speaker
@@ -209,9 +209,20 @@ final class NativeVoiceRuntime {
             player.volume = effect.volume
             player.prepareToPlay()
             guard player.play() else { return }
-            soundEffectPlayer = player
+            retainSoundEffectPlayer(player)
         } catch {
             lastEvent = "sound-effect.failed"
+        }
+    }
+
+    private func retainSoundEffectPlayer(_ player: AVAudioPlayer) {
+        soundEffectPlayers.removeAll { !$0.isPlaying }
+        soundEffectPlayers.append(player)
+        let lifetime = max(0.25, player.duration + 0.25)
+        Task { [weak player] in
+            try? await Task.sleep(nanoseconds: UInt64(lifetime * 1_000_000_000))
+            guard let player else { return }
+            soundEffectPlayers.removeAll { $0 === player || !$0.isPlaying }
         }
     }
 

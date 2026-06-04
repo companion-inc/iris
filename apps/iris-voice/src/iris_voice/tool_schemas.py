@@ -45,11 +45,12 @@ def basic_voice_tools() -> ToolsSchema:
                     "Run a safe, simple, one-line shell command on this Mac. Use this for direct local "
                     "commands that fit in one quick command invocation. Prefer this over the Codex agent for "
                     "fast checks or tiny actions such as date, pwd, ls, pgrep, open, mkdir, touch, or a single "
-                    "script command. Use the Codex agent instead for longer work, multi-step tasks, code edits, "
+                    "script command. Use this for explicit requests to open a named Mac app with open -a. "
+                    "Use the Codex agent instead for longer work, multi-step tasks, code edits, "
                     "debugging, investigation, or anything that needs interpretation over time. Ask the user "
                     "for permission before using this for sensitive commands. "
                     "Sensitive means likely to change or expose important local state, such as deleting, moving, "
-                    "overwriting, installing, committing, pushing, killing processes, opening apps, network calls "
+                    "overwriting, installing, committing, pushing, killing processes, network calls "
                     "with credentials, or anything the user has not clearly authorized. Do not use shell operators, "
                     "chained commands, command substitution, or long-running interactive agents."
                 ),
@@ -193,10 +194,14 @@ def basic_voice_tools() -> ToolsSchema:
                     "Use Iris's local Mac desktop capability. Iris is already running inside the desktop app; "
                     "never tell the user to download or install Iris Desktop. Choose start for new computer "
                     "work, steer for instructions to the active desktop task, interrupt only to stop "
-                    "desktop/computer work, and status to check the local desktop bridge. Use this instead "
-                    "of shell_exec for longer work, multi-step tasks, code edits, debugging, investigation, "
-                    "or anything that should be handled by Codex over time. Do not use this for generic voice "
-                    "stop/cancel/end phrases; use the end tool instead."
+                    "desktop/computer work, and status to check the local desktop bridge. Do not use agent "
+                    "when a regular Iris tool can fully handle the request. Use shell_exec instead for safe, "
+                    "quick, one-line local commands with immediate results, including explicit requests to open "
+                    "a named Mac app with open -a. Use agent for screen/app "
+                    "inspection, active desktop-task steering, multi-step work, code edits, debugging, "
+                    "investigation, current web/docs/pricing/news/benchmark research, or anything that "
+                    "should be handled by Codex over time. Do not use this for generic voice stop/cancel/end "
+                    "phrases; use the end tool instead."
                 ),
                 properties={
                     "agentId": {
