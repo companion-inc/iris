@@ -72,6 +72,17 @@ class TranscriptRelay(FrameProcessor):
                 speaker = speaker_label_for_words(words)
                 wake_detected = has_transcription_wake_phrase(text)
                 block_llm_for_playback = self._playback_active() and not wake_detected
+                self._events.emit(
+                    {
+                        "type": "transcript.final" if is_final else "transcript.interim",
+                        "text": text,
+                        "final": is_final,
+                        "wakeDetected": wake_detected,
+                        "speaker": speaker,
+                        "words": words,
+                        "confidence": confidence,
+                    }
+                )
                 if self._playback_echo_guard and self._playback_echo_guard.is_playback_echo(frame):
                     logger.info(
                         "iris.voice.transcript_filtered_playback_echo final={} session={} device={} speaker={} words={} chars={} wake_candidate={} text={!r}",
@@ -84,19 +95,7 @@ class TranscriptRelay(FrameProcessor):
                         wake_detected,
                         debug_transcript_text(text),
                     )
-                    await self.push_frame(frame, direction)
                     return
-                self._events.emit(
-                    {
-                        "type": "transcript.final" if is_final else "transcript.interim",
-                        "text": text,
-                        "final": is_final,
-                        "wakeDetected": wake_detected,
-                        "speaker": speaker,
-                        "words": words,
-                        "confidence": confidence,
-                    }
-                )
                 if is_final:
                     context_parts: list[str] = []
                     for group in speaker_word_groups(words, text):

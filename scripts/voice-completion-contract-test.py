@@ -753,6 +753,26 @@ async def test_transcript_relay_ingests_but_blocks_llm_while_playback_active() -
     assert any(message.get("type") == "transcript.final" for message in websocket.messages)
 
 
+async def test_transcript_relay_shows_echo_but_blocks_chat() -> None:
+    websocket = FakeWebSocket()
+    events = RuntimeEvents(websocket, session())
+    emitted: list[dict[str, Any]] = []
+    events.add_listener(emitted.append)
+    relay = CapturingTranscriptRelay(
+        events,
+        playback_active=lambda: True,
+        playback_echo_guard=FakeEchoGuard(True),
+    )
+
+    frame = transcription("Should we go somewhere else entirely?", speaker=2)
+    await relay.process_frame(frame, FrameDirection.DOWNSTREAM)
+    await asyncio.sleep(0)
+
+    assert relay.pushed_frames == []
+    assert any(message.get("type") == "transcript.final" for message in emitted)
+    assert any(message.get("type") == "transcript.final" for message in websocket.messages)
+
+
 async def test_regular_turn_strategy_accepts_assistant_followup_after_question() -> None:
     wake_strategy = IrisWakePhraseUserTurnStartStrategy(
         phrases=["iris"],
@@ -1029,6 +1049,7 @@ async def main() -> None:
     await test_noop_tool_finishes_without_running_llm()
     await test_transcript_relay_marks_post_wake_turn_before_downstream_wake_event()
     await test_transcript_relay_ingests_but_blocks_llm_while_playback_active()
+    await test_transcript_relay_shows_echo_but_blocks_chat()
     await test_regular_turn_strategy_accepts_assistant_followup_after_question()
     await test_conversation_busy_guard()
     await test_many_pending_tool_results_clear_without_batch_injection()
