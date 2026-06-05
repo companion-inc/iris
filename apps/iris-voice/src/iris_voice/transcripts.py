@@ -71,6 +71,7 @@ class TranscriptRelay(FrameProcessor):
                 words, confidence = deepgram_words_and_confidence(frame)
                 speaker = speaker_label_for_words(words)
                 wake_detected = has_transcription_wake_phrase(text)
+                block_llm_for_playback = self._playback_active() and not wake_detected
                 if self._playback_echo_guard and self._playback_echo_guard.is_playback_echo(frame):
                     logger.info(
                         "iris.voice.transcript_filtered_playback_echo final={} session={} device={} speaker={} words={} chars={} wake_candidate={} text={!r}",
@@ -137,6 +138,17 @@ class TranscriptRelay(FrameProcessor):
                                 segment_record
                             )
                         self._schedule_speaker_identity(group)
+                    if block_llm_for_playback:
+                        logger.info(
+                            "iris.voice.transcript_blocked_from_llm_playback_active final=true session={} device={} speaker={} words={} chars={} text={!r}",
+                            self._events.session_id,
+                            self._events.device_id,
+                            speaker,
+                            len(words),
+                            len(text),
+                            debug_transcript_text(text),
+                        )
+                        return
                     current_plain_text = text
                     context_text = current_plain_text
                     if context_text.strip():
@@ -211,6 +223,17 @@ class TranscriptRelay(FrameProcessor):
                         words=words,
                         confidence=confidence,
                     )
+                    if block_llm_for_playback:
+                        logger.info(
+                            "iris.voice.transcript_blocked_from_llm_playback_active final=false session={} device={} speaker={} words={} chars={} text={!r}",
+                            self._events.session_id,
+                            self._events.device_id,
+                            speaker,
+                            len(words),
+                            len(text),
+                            debug_transcript_text(text),
+                        )
+                        return
         await self.push_frame(frame, direction)
 
     def _schedule_speaker_identity(self, group: dict[str, Any]) -> None:

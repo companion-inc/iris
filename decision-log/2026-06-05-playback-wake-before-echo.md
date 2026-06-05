@@ -1,0 +1,38 @@
+# Playback Wake Before Echo
+
+## Finding
+
+Iris currently uses Pipecat `LocalAudioTransport` through PyAudio for local mic input and speaker output. That path does not provide macOS VoiceProcessingIO or WebRTC acoustic echo cancellation by itself, so assistant playback can leak back into transcription.
+
+The existing transcript-level playback echo guard is only a workaround for leaked assistant audio. It must not suppress the explicit playback interruption wake phrase.
+
+## Decision
+
+During assistant playback, the wake gate checks `has_playback_interrupt_wake_phrase()` before consulting `PlaybackEchoGuard`.
+
+This preserves the intended interruption rule:
+
+- `Iris`, `hey Iris`, or `Iris stop` can interrupt playback.
+- Non-wake assistant echo is still blocked from starting a user turn.
+- Non-wake final transcripts during playback still reset aggregation instead of reaching the LLM.
+
+## Verification
+
+Added a regression test that forces the echo guard to return true and confirms `Iris stop` still triggers `on_user_turn_started` with no aggregation reset.
+
+Ran:
+
+```sh
+python3 -m py_compile apps/iris-voice/src/iris_voice/turns/playback_wake_gate.py scripts/voice-completion-contract-test.py
+cd apps/iris-voice && uv run ../../scripts/voice-completion-contract-test.py
+```
+
+The contract run logged:
+
+```text
+iris.voice.playback_wake_gate interrupt=true final=False text='Iris stop'
+```
+
+## Remaining Risk
+
+If playback is loud enough that the STT provider never emits a transcript containing the wake phrase, this gate will not see `Iris` and cannot interrupt. That remaining issue requires real acoustic echo cancellation or a local wake detector that can operate during playback; adding more transcript filters cannot fix audio that never reaches transcription.

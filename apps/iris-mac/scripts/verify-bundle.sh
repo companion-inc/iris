@@ -26,6 +26,7 @@ REPO_ROOT_FILE="$DEST_APP/Contents/Resources/repo-root.txt"
 [[ "$("$PLIST_BUDDY" -c 'Print :CFBundleIdentifier' "$PLIST")" == "$APP_ID" ]]
 [[ "$("$PLIST_BUDDY" -c 'Print :CFBundlePackageType' "$PLIST")" == "APPL" ]]
 "$PLIST_BUDDY" -c 'Print :NSMicrophoneUsageDescription' "$PLIST" >/dev/null
+"$PLIST_BUDDY" -c 'Print :NSCameraUsageDescription' "$PLIST" >/dev/null
 [[ -f "$REPO_ROOT_FILE" ]] || {
   echo "Missing repo root marker: $REPO_ROOT_FILE" >&2
   exit 1
@@ -36,4 +37,5 @@ REPO_ROOT_FILE="$DEST_APP/Contents/Resources/repo-root.txt"
 }
 
 codesign --verify --deep --strict "$DEST_APP" >/dev/null
+codesign -d --entitlements :- "$DEST_APP" 2>/dev/null | grep -q 'com.apple.security.device.camera'
 echo "Iris bundle verified: $DEST_APP"

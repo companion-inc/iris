@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import urllib.error
@@ -17,6 +18,64 @@ from .transcript_types import TranscriptWord
 def auth_headers() -> dict[str, str]:
     api_key = os.getenv("IRIS_API_KEY")
     return {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+
+async def request_native_permission(kind: str) -> dict[str, Any]:
+    api_url = os.getenv("IRIS_API_URL", "http://127.0.0.1:4747").rstrip("/")
+    safe_kind = kind.strip().lower()
+    if safe_kind not in {"camera", "screen-capture"}:
+        return {"ok": False, "error": f"unsupported native permission: {kind}"}
+
+    def post() -> dict[str, Any]:
+        request = urllib.request.Request(
+            f"{api_url}/debug/permissions/{safe_kind}/request",
+            data=b"{}",
+            method="POST",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "IrisVoice/1",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        return body if isinstance(body, dict) else {"ok": False, "error": "invalid response"}
+
+    try:
+        return await asyncio.to_thread(post)
+    except urllib.error.HTTPError as error:
+        logger.warning("iris.voice.native_permission_http_failed kind={} status={}", safe_kind, error.code)
+        return {"ok": False, "error": f"permission request failed with HTTP {error.code}"}
+    except Exception as error:
+        logger.exception("iris.voice.native_permission_failed kind={}", safe_kind)
+        return {"ok": False, "error": str(error)}
+
+
+async def capture_native_screen_jpeg() -> bytes:
+    api_url = os.getenv("IRIS_API_URL", "http://127.0.0.1:4747").rstrip("/")
+
+    def post() -> bytes:
+        request = urllib.request.Request(
+            f"{api_url}/debug/vision/screen-jpeg",
+            data=b"{}",
+            method="POST",
+            headers={
+                "Accept": "application/json",
+                "Content-Type": "application/json",
+                "User-Agent": "IrisVoice/1",
+            },
+        )
+        with urllib.request.urlopen(request, timeout=20) as response:
+            body = json.loads(response.read().decode("utf-8"))
+        if not isinstance(body, dict) or body.get("ok") is not True:
+            error = body.get("error") if isinstance(body, dict) else "invalid response"
+            raise RuntimeError(str(error or "native screen capture failed"))
+        encoded = body.get("data")
+        if not isinstance(encoded, str) or not encoded:
+            raise RuntimeError("native screen capture response missing image data")
+        return base64.b64decode(encoded)
+
+    return await asyncio.to_thread(post)
 
 
 async def fetch_session_config(session: VoiceSessionContext) -> dict[str, Any]:

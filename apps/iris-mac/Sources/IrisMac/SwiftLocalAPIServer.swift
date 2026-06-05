@@ -1,4 +1,5 @@
 import CryptoKit
+import AppKit
 import Foundation
 import SQLite3
 
@@ -90,6 +91,48 @@ final class SwiftLocalAPIServer: @unchecked Sendable {
             }
             let started = await nativeVoiceStarter()
             return json(["ok": started])
+        case ("GET", "/debug/permissions/camera"):
+            let snapshot = await CameraPermission.snapshot()
+            return json(snapshot.jsonObject)
+        case ("POST", "/debug/permissions/camera/request"):
+            let before = await CameraPermission.snapshot()
+            let granted = await CameraPermission.requestIfNeeded()
+            let after = await CameraPermission.snapshot()
+            if !granted {
+                openPrivacySettings(anchor: "Privacy_Camera")
+            }
+            return json(["ok": granted, "before": before.jsonObject, "after": after.jsonObject])
+        case ("GET", "/debug/permissions/screen-capture"):
+            return json(ScreenCapturePermission.snapshot())
+        case ("POST", "/debug/permissions/screen-capture/request"):
+            let before = ScreenCapturePermission.snapshot()
+            let granted = ScreenCapturePermission.requestIfNeeded()
+            let after = ScreenCapturePermission.snapshot()
+            if !granted {
+                openPrivacySettings(anchor: "Privacy_ScreenCapture")
+            }
+            return json(["ok": granted, "before": before, "after": after])
+        case ("POST", "/debug/vision/screen-jpeg"):
+            guard ScreenCapturePermission.requestIfNeeded() else {
+                openPrivacySettings(anchor: "Privacy_ScreenCapture")
+                return json([
+                    "ok": false,
+                    "error": "Screen capture permission is not granted",
+                    "requiresScreenRecordingPermission": true,
+                    "permission": ScreenCapturePermission.snapshot()
+                ], status: 403)
+            }
+            do {
+                let data = try ScreenCapturePermission.captureMainDisplayJPEG()
+                return json([
+                    "ok": true,
+                    "mimeType": "image/jpeg",
+                    "bytes": data.count,
+                    "data": data.base64EncodedString()
+                ])
+            } catch {
+                return json(["ok": false, "error": error.localizedDescription], status: 500)
+            }
         case ("GET", "/health/voice"):
             return json(["ok": true, "service": "iris-api-swift", "voice": ["url": "http://127.0.0.1:4748"]])
         case ("POST", "/v1/voice/sessions"):
@@ -2276,6 +2319,13 @@ private func isoDate(_ date: Date) -> String {
     let formatter = ISO8601DateFormatter()
     formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
     return formatter.string(from: date)
+}
+
+private func openPrivacySettings(anchor: String) {
+    guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(anchor)") else {
+        return
+    }
+    NSWorkspace.shared.open(url)
 }
 
 private extension String {

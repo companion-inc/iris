@@ -36,6 +36,8 @@ from iris_voice.sound_recognition import (  # noqa: E402
     default_sound_recognition_watches,
 )
 from iris_voice.tools import agent_result_run_id, agent_result_status  # noqa: E402
+from iris_voice.tools import _capture_default_camera_jpeg  # noqa: E402
+from iris_voice.tools import _capture_main_screen_jpeg  # noqa: E402
 from iris_voice.tools import register_basic_voice_tools  # noqa: E402
 from iris_voice.tool_schemas import basic_voice_tools  # noqa: E402
 from iris_voice.transcripts import TranscriptRelay  # noqa: E402
@@ -97,8 +99,8 @@ class FakeEchoGuard:
 
 
 class CapturingTranscriptRelay(TranscriptRelay):
-    def __init__(self, events: RuntimeEvents) -> None:
-        super().__init__(events)
+    def __init__(self, events: RuntimeEvents, **kwargs: Any) -> None:
+        super().__init__(events, **kwargs)
         self.pushed_frames: list[Any] = []
 
     async def push_frame(self, frame: Any, direction: FrameDirection = FrameDirection.DOWNSTREAM):
@@ -451,6 +453,8 @@ async def test_system_prompt_treats_user_turns_as_imperfect_speech() -> None:
     assert "Pick the lowest-latency tool that fully satisfies the request" in prompt
     assert "Use shell_exec for direct, safe, one-step local commands" in prompt
     assert "Use shell_exec for explicit named-app launches" in prompt
+    assert "Use screen_vision when the user asks about what is visible" in prompt
+    assert "Use camera_vision when the user asks you to look through the camera" in prompt
     assert "simple built-in Iris capabilities" in prompt
     assert "Current web/docs research, code debugging, or multi-step desktop work" in prompt
     assert "Before calling agent, rewrite the spoken turn" in prompt
@@ -462,11 +466,31 @@ async def test_system_prompt_treats_user_turns_as_imperfect_speech() -> None:
     shell_tool = next(tool for tool in schema.standard_tools if tool.name == "shell_exec")
     assert "open a named Mac app with open -a" in shell_tool.description
     assert "opening apps" not in shell_tool.description
+    screen_tool = next(tool for tool in schema.standard_tools if tool.name == "screen_vision")
+    assert "let Gemini answer a visual question from the screenshot" in screen_tool.description
+    assert screen_tool.required == ["question"]
+    camera_tool = next(tool for tool in schema.standard_tools if tool.name == "camera_vision")
+    assert "let Gemini answer a visual question from that camera image" in camera_tool.description
+    assert camera_tool.required == ["question"]
     agent_tool = next(tool for tool in schema.standard_tools if tool.name == "agent")
     assert "Rewrite the user's spoken request" in agent_tool.properties["prompt"]["description"]
     assert "Do not use agent when a regular Iris tool can fully handle the request" in agent_tool.description
+    assert "Use screen_vision instead when Gemini should answer from the current screen pixels" in agent_tool.description
+    assert "Use camera_vision instead when Gemini should answer from the current camera view" in agent_tool.description
     assert "Use shell_exec instead for safe" in agent_tool.description
     assert "open a named Mac app with open -a" in agent_tool.description
+
+
+async def test_screen_vision_can_capture_jpeg() -> None:
+    image = await _capture_main_screen_jpeg()
+    assert image.startswith(b"\xff\xd8\xff")
+    assert len(image) > 1024
+
+
+async def test_camera_vision_can_capture_jpeg() -> None:
+    image = await _capture_default_camera_jpeg()
+    assert image.startswith(b"\xff\xd8\xff")
+    assert len(image) > 1024
 
 
 async def test_playback_wake_interrupt_allows_interruption_command() -> None:
@@ -481,6 +505,23 @@ async def test_playback_wake_interrupt_allows_interruption_command() -> None:
     frame = transcription("Iris increase your volume", speaker=1, final=False)
     assert await gate.process_frame(frame) == ProcessFrameResult.STOP
     assert len(gate_starts) == 1
+
+
+async def test_playback_wake_interrupt_wins_over_echo_filter() -> None:
+    gate = PlaybackWakeGateUserTurnStartStrategy(
+        playback_active=lambda: True,
+        echo_guard=FakeEchoGuard(True),
+        enable_interruptions=True,
+    )
+    starts: list[Any] = []
+    resets: list[Any] = []
+    gate.add_event_handler("on_user_turn_started", lambda *_args: starts.append(_args[-1]))
+    gate.add_event_handler("on_reset_aggregation", lambda *_args: resets.append(_args[-1]))
+
+    frame = transcription("Iris stop", speaker=1, final=False)
+    assert await gate.process_frame(frame) == ProcessFrameResult.STOP
+    assert len(starts) == 1
+    assert len(resets) == 0
 
 
 async def test_playback_wake_interrupt_does_not_need_downstream_addressing() -> None:
@@ -684,6 +725,22 @@ async def test_transcript_relay_marks_post_wake_turn_before_downstream_wake_even
     assert "Iris just accepted a wake phrase" in followup_frame.text
     assert "Current user turn:" in followup_frame.text
     assert "What time is" in followup_frame.text
+
+
+async def test_transcript_relay_ingests_but_blocks_llm_while_playback_active() -> None:
+    websocket = FakeWebSocket()
+    events = RuntimeEvents(websocket, session())
+    emitted: list[dict[str, Any]] = []
+    events.add_listener(emitted.append)
+    relay = CapturingTranscriptRelay(events, playback_active=lambda: True)
+
+    frame = transcription("Should we go somewhere else entirely?", speaker=2)
+    await relay.process_frame(frame, FrameDirection.DOWNSTREAM)
+    await asyncio.sleep(0)
+
+    assert relay.pushed_frames == []
+    assert any(message.get("type") == "transcript.final" for message in emitted)
+    assert any(message.get("type") == "transcript.final" for message in websocket.messages)
 
 
 async def test_regular_turn_strategy_accepts_assistant_followup_after_question() -> None:
@@ -948,7 +1005,10 @@ async def main() -> None:
     await test_default_sound_recognition_ignores_low_confidence_room_noise()
     await test_default_wake_window_allows_real_followup_pacing()
     await test_system_prompt_treats_user_turns_as_imperfect_speech()
+    await test_screen_vision_can_capture_jpeg()
+    await test_camera_vision_can_capture_jpeg()
     await test_playback_wake_interrupt_allows_interruption_command()
+    await test_playback_wake_interrupt_wins_over_echo_filter()
     await test_playback_wake_interrupt_does_not_need_downstream_addressing()
     await test_playback_wake_interrupt_requires_leading_wake_phrase()
     await test_playback_echo_guard_only_filters_assistant_text()
@@ -958,6 +1018,7 @@ async def main() -> None:
     await test_local_audio_watchdog_detects_stalled_input_stream()
     await test_noop_tool_finishes_without_running_llm()
     await test_transcript_relay_marks_post_wake_turn_before_downstream_wake_event()
+    await test_transcript_relay_ingests_but_blocks_llm_while_playback_active()
     await test_regular_turn_strategy_accepts_assistant_followup_after_question()
     await test_conversation_busy_guard()
     await test_many_pending_tool_results_clear_without_batch_injection()

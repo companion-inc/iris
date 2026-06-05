@@ -39,6 +39,15 @@ class PlaybackWakeGateUserTurnStartStrategy(BaseUserTurnStartStrategy):
 
         if isinstance(frame, (InterimTranscriptionFrame, TranscriptionFrame)):
             text = frame.text.strip()
+            if has_playback_interrupt_wake_phrase(text):
+                logger.info(
+                    "iris.voice.playback_wake_gate interrupt=true final={} text={!r}",
+                    isinstance(frame, TranscriptionFrame),
+                    text,
+                )
+                await self.trigger_user_turn_started()
+                return ProcessFrameResult.STOP
+
             if self._echo_guard.is_playback_echo(frame):
                 logger.info(
                     "iris.voice.playback_wake_gate ignored_assistant_echo final={} text={!r}",
@@ -47,15 +56,6 @@ class PlaybackWakeGateUserTurnStartStrategy(BaseUserTurnStartStrategy):
                 )
                 if isinstance(frame, TranscriptionFrame):
                     await self.trigger_reset_aggregation()
-                return ProcessFrameResult.STOP
-
-            if has_playback_interrupt_wake_phrase(text):
-                logger.info(
-                    "iris.voice.playback_wake_gate interrupt=true final={} text={!r}",
-                    isinstance(frame, TranscriptionFrame),
-                    text,
-                )
-                await self.trigger_user_turn_started()
                 return ProcessFrameResult.STOP
 
             if isinstance(frame, TranscriptionFrame):

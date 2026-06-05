@@ -4,6 +4,7 @@ import asyncio
 import os
 import re
 import shlex
+import tempfile
 import time
 from collections.abc import Awaitable, Callable, Mapping
 from typing import Any
@@ -31,6 +32,8 @@ from .api_client import (
     list_user_memories,
     post_session_light,
     post_session_volume,
+    capture_native_screen_jpeg,
+    request_native_permission,
     save_user_memory,
     search_transcripts,
     update_user_memory,
@@ -47,6 +50,8 @@ SENSITIVE_ARGUMENT_PARTS = ("authorization", "password", "secret", "token", "key
 MAX_LOG_TEXT_CHARS = 180
 SHELL_EXEC_FORBIDDEN_CHARS = {"\n", "\r", "\x00", ";", "|", "&", ">", "<", "`"}
 SHELL_EXEC_MAX_OUTPUT_CHARS = 6000
+SCREEN_VISION_MAX_DIMENSION = 1600
+CAMERA_VISION_MAX_DIMENSION = 1280
 
 
 def _truncate_log_text(value: str, *, limit: int = MAX_LOG_TEXT_CHARS) -> str:
@@ -366,6 +371,81 @@ def _shell_exec_spoken_result(result: Mapping[str, Any]) -> str | None:
     if not text or len(text) > 180 or "\n[truncated]" in stdout:
         return None
     return text
+
+
+async def _run_capture_command(*args: str, timeout: float) -> tuple[int, bytes, bytes]:
+    process = await asyncio.create_subprocess_exec(
+        *args,
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    try:
+        stdout, stderr = await asyncio.wait_for(process.communicate(), timeout=timeout)
+    except TimeoutError:
+        process.kill()
+        stdout, stderr = await process.communicate()
+        return 124, stdout, stderr
+    return process.returncode or 0, stdout, stderr
+
+
+async def _capture_main_screen_jpeg() -> bytes:
+    image = await capture_native_screen_jpeg()
+    if not image:
+        raise RuntimeError("native screen capture produced an empty image")
+    return image
+
+
+async def _capture_default_camera_jpeg() -> bytes:
+    fd, path = tempfile.mkstemp(prefix="iris-camera-", suffix=".jpg")
+    os.close(fd)
+    ffmpeg = os.getenv("IRIS_FFMPEG_BIN", "/opt/homebrew/bin/ffmpeg")
+    try:
+        code, _stdout, stderr = await _run_capture_command(
+            ffmpeg,
+            "-hide_banner",
+            "-loglevel",
+            "error",
+            "-f",
+            "avfoundation",
+            "-video_size",
+            "1280x720",
+            "-framerate",
+            "30",
+            "-i",
+            "0:none",
+            "-frames:v",
+            "1",
+            "-y",
+            path,
+            timeout=15.0,
+        )
+        if code != 0:
+            error = stderr.decode("utf-8", errors="replace").strip()
+            raise RuntimeError(error or f"ffmpeg camera capture exited with {code}")
+        if CAMERA_VISION_MAX_DIMENSION > 0:
+            resize_code, _resize_stdout, resize_stderr = await _run_capture_command(
+                "/usr/bin/sips",
+                "-Z",
+                str(CAMERA_VISION_MAX_DIMENSION),
+                path,
+                timeout=8.0,
+            )
+            if resize_code != 0:
+                logger.warning(
+                    "iris.voice.camera_vision_resize_failed exit_code={} stderr={}",
+                    resize_code,
+                    _truncate_log_text(resize_stderr.decode("utf-8", errors="replace")),
+                )
+        with open(path, "rb") as file:
+            image = file.read()
+        if not image:
+            raise RuntimeError("camera capture produced an empty image")
+        return image
+    finally:
+        try:
+            os.remove(path)
+        except FileNotFoundError:
+            pass
 
 
 def register_basic_voice_tools(
@@ -934,6 +1014,188 @@ def register_basic_voice_tools(
                 started_at=started_at,
             )
 
+    async def screen_vision(params: FunctionCallParams) -> None:
+        raw_question = params.arguments.get("question")
+        question = raw_question.replace("\n", " ").strip() if isinstance(raw_question, str) else ""
+        started_at = _tool_started(
+            params,
+            session=session,
+            events=events,
+            display=params.arguments.get("display") or "main",
+        )
+        events.emit({"type": "tool.called", "name": "screen_vision"})
+        if not question:
+            await _send_tool_result(
+                params,
+                {"ok": False, "error": "screen_vision requires a visual question"},
+                properties=FunctionCallResultProperties(run_llm=True),
+                session=session,
+                events=events,
+                phase="validation_error",
+                started_at=started_at,
+            )
+            return
+        try:
+            permission = await request_native_permission("screen-capture")
+            if permission.get("ok") is not True:
+                await _send_tool_result(
+                    params,
+                    {
+                        "ok": False,
+                        "error": str(permission.get("error") or "screen capture permission is not granted"),
+                        "permission": permission,
+                        "requiresScreenRecordingPermission": True,
+                    },
+                    properties=FunctionCallResultProperties(run_llm=True),
+                    session=session,
+                    events=events,
+                    phase="permission",
+                    started_at=started_at,
+                )
+                return
+            image = await _capture_main_screen_jpeg()
+            await params.context.add_image_frame_message(
+                format="image/jpeg",
+                size=(0, 0),
+                image=image,
+                text=(
+                    "Answer the user's visual question from this current Mac screenshot. "
+                    "Use only what is visible in the image unless the question requires a clearly marked "
+                    "inference. Visual question: "
+                    f"{question}"
+                ),
+            )
+            result = {
+                "ok": True,
+                "source": "mac_screen",
+                "display": "main",
+                "imageMimeType": "image/jpeg",
+                "imageBytes": len(image),
+                "question": question,
+            }
+            logger.info(
+                "iris.voice.tool.called session={} device={} name=screen_vision image_bytes={} question={}",
+                session.session_id,
+                session.device_id,
+                len(image),
+                _truncate_log_text(question),
+            )
+            await _send_tool_result(
+                params,
+                result,
+                properties=FunctionCallResultProperties(run_llm=True),
+                session=session,
+                events=events,
+                phase="final",
+                started_at=started_at,
+            )
+        except Exception as error:
+            logger.exception(
+                "iris.voice.tool.failed session={} device={} name=screen_vision",
+                session.session_id,
+                session.device_id,
+            )
+            await _send_tool_result(
+                params,
+                {"ok": False, "error": str(error), "requiresScreenRecordingPermission": True},
+                properties=FunctionCallResultProperties(run_llm=True),
+                session=session,
+                events=events,
+                phase="error",
+                started_at=started_at,
+            )
+
+    async def camera_vision(params: FunctionCallParams) -> None:
+        raw_question = params.arguments.get("question")
+        question = raw_question.replace("\n", " ").strip() if isinstance(raw_question, str) else ""
+        started_at = _tool_started(
+            params,
+            session=session,
+            events=events,
+            camera=params.arguments.get("camera") or "default",
+        )
+        events.emit({"type": "tool.called", "name": "camera_vision"})
+        if not question:
+            await _send_tool_result(
+                params,
+                {"ok": False, "error": "camera_vision requires a visual question"},
+                properties=FunctionCallResultProperties(run_llm=True),
+                session=session,
+                events=events,
+                phase="validation_error",
+                started_at=started_at,
+            )
+            return
+        try:
+            permission = await request_native_permission("camera")
+            if permission.get("ok") is not True:
+                await _send_tool_result(
+                    params,
+                    {
+                        "ok": False,
+                        "error": str(permission.get("error") or "camera permission is not granted"),
+                        "permission": permission,
+                        "requiresCameraPermission": True,
+                    },
+                    properties=FunctionCallResultProperties(run_llm=True),
+                    session=session,
+                    events=events,
+                    phase="permission",
+                    started_at=started_at,
+                )
+                return
+            image = await _capture_default_camera_jpeg()
+            await params.context.add_image_frame_message(
+                format="image/jpeg",
+                size=(0, 0),
+                image=image,
+                text=(
+                    "Answer the user's visual question from this current Mac camera frame. "
+                    "Use only what is visible in the image unless the question requires a clearly marked "
+                    "inference. Camera-view question: "
+                    f"{question}"
+                ),
+            )
+            result = {
+                "ok": True,
+                "source": "mac_camera",
+                "camera": "default",
+                "imageMimeType": "image/jpeg",
+                "imageBytes": len(image),
+                "question": question,
+            }
+            logger.info(
+                "iris.voice.tool.called session={} device={} name=camera_vision image_bytes={} question={}",
+                session.session_id,
+                session.device_id,
+                len(image),
+                _truncate_log_text(question),
+            )
+            await _send_tool_result(
+                params,
+                result,
+                properties=FunctionCallResultProperties(run_llm=True),
+                session=session,
+                events=events,
+                phase="final",
+                started_at=started_at,
+            )
+        except Exception as error:
+            logger.exception(
+                "iris.voice.tool.failed session={} device={} name=camera_vision",
+                session.session_id,
+                session.device_id,
+            )
+            await _send_tool_result(
+                params,
+                {"ok": False, "error": str(error), "requiresCameraPermission": True},
+                properties=FunctionCallResultProperties(run_llm=True),
+                session=session,
+                events=events,
+                phase="error",
+                started_at=started_at,
+            )
+
     async def memory(params: FunctionCallParams) -> None:
         started_at = _tool_started(params, session=session, events=events)
         action = _normalize_memory_action(params.arguments.get("action"))
@@ -1288,6 +1550,18 @@ def register_basic_voice_tools(
         search,
         cancel_on_interruption=False,
         timeout_secs=20.0,
+    )
+    llm.register_function(
+        "screen_vision",
+        screen_vision,
+        cancel_on_interruption=False,
+        timeout_secs=25.0,
+    )
+    llm.register_function(
+        "camera_vision",
+        camera_vision,
+        cancel_on_interruption=False,
+        timeout_secs=30.0,
     )
     llm.register_function(
         "memory",

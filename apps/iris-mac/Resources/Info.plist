@@ -28,5 +28,7 @@
   <false/>
   <key>NSMicrophoneUsageDescription</key>
   <string>Iris uses the microphone for local voice interaction.</string>
+  <key>NSCameraUsageDescription</key>
+  <string>Iris uses the camera only when you ask it to answer from the camera view.</string>
 </dict>
 </plist>

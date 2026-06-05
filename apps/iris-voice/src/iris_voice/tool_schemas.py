@@ -69,6 +69,55 @@ def basic_voice_tools() -> ToolsSchema:
                 required=["command"],
             ),
             FunctionSchema(
+                name="screen_vision",
+                description=(
+                    "Capture the Mac screen and let Gemini answer a visual question from the screenshot. "
+                    "Use this when the user asks about what is visible, on screen, in an app window, in an "
+                    "image, chart, page, UI, error dialog, or other visual state and the answer should come "
+                    "from Gemini seeing the pixels directly. Do not use this for non-visual desktop actions "
+                    "or multi-step computer work."
+                ),
+                properties={
+                    "question": {
+                        "type": "string",
+                        "description": (
+                            "The user's visual question rewritten clearly for Gemini. Include the target app, "
+                            "window, or visual object if the user named one."
+                        ),
+                    },
+                    "display": {
+                        "type": "string",
+                        "enum": ["main"],
+                        "description": "Screen to capture. Currently only the main display is supported.",
+                    },
+                },
+                required=["question"],
+            ),
+            FunctionSchema(
+                name="camera_vision",
+                description=(
+                    "Capture one frame from the Mac camera and let Gemini answer a visual question from "
+                    "that camera image. Use this when the user asks Iris to look through the camera, look "
+                    "at them, identify something in front of the camera, inspect a physical object, or answer "
+                    "from the room/camera view. Do not use this for screen contents; use screen_vision for that."
+                ),
+                properties={
+                    "question": {
+                        "type": "string",
+                        "description": (
+                            "The user's camera-view question rewritten clearly for Gemini. Include the physical "
+                            "object, person, or scene if the user named one."
+                        ),
+                    },
+                    "camera": {
+                        "type": "string",
+                        "enum": ["default"],
+                        "description": "Camera to capture. Currently uses the default AVFoundation camera.",
+                    },
+                },
+                required=["question"],
+            ),
+            FunctionSchema(
                 name="end",
                 description=(
                     "End the active voice chat. Use this for generic direct stop/cancel/end phrases "
@@ -195,7 +244,9 @@ def basic_voice_tools() -> ToolsSchema:
                     "never tell the user to download or install Iris Desktop. Choose start for new computer "
                     "work, steer for instructions to the active desktop task, interrupt only to stop "
                     "desktop/computer work, and status to check the local desktop bridge. Do not use agent "
-                    "when a regular Iris tool can fully handle the request. Use shell_exec instead for safe, "
+                    "when a regular Iris tool can fully handle the request. Use screen_vision instead when "
+                    "Gemini should answer from the current screen pixels. Use camera_vision instead when "
+                    "Gemini should answer from the current camera view. Use shell_exec instead for safe, "
                     "quick, one-line local commands with immediate results, including explicit requests to open "
                     "a named Mac app with open -a. Use agent for screen/app "
                     "inspection, active desktop-task steering, multi-step work, code edits, debugging, "
