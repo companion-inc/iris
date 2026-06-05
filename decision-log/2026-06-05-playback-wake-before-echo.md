@@ -8,11 +8,12 @@ The existing transcript-level playback echo guard is only a workaround for leake
 
 ## Decision
 
-During assistant playback, the wake gate checks `has_playback_interrupt_wake_phrase()` before consulting `PlaybackEchoGuard`.
+During assistant playback, the wake gate checks `has_playback_interrupt_wake_phrase()` before consulting `PlaybackEchoGuard`. In playback mode, any transcript containing the word `iris` interrupts playback.
 
 This preserves the intended interruption rule:
 
-- `Iris`, `hey Iris`, or `Iris stop` can interrupt playback.
+- `Iris`, `hey Iris`, `please Iris`, or `Iris stop` can interrupt playback.
+- The wake transcript is consumed by the playback gate as an interruption signal; any extra words in that same transcript are not treated as a user command.
 - Non-wake assistant echo is still blocked from starting a user turn.
 - Non-wake final transcripts during playback still reset aggregation instead of reaching the LLM.
 

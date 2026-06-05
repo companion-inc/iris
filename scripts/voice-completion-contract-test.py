@@ -502,7 +502,7 @@ async def test_playback_wake_interrupt_allows_interruption_command() -> None:
     gate_starts: list[Any] = []
     gate.add_event_handler("on_user_turn_started", lambda *_args: gate_starts.append(_args[-1]))
 
-    frame = transcription("Iris increase your volume", speaker=1, final=False)
+    frame = transcription("Iris", speaker=1, final=False)
     assert await gate.process_frame(frame) == ProcessFrameResult.STOP
     assert len(gate_starts) == 1
 
@@ -518,7 +518,7 @@ async def test_playback_wake_interrupt_wins_over_echo_filter() -> None:
     gate.add_event_handler("on_user_turn_started", lambda *_args: starts.append(_args[-1]))
     gate.add_event_handler("on_reset_aggregation", lambda *_args: resets.append(_args[-1]))
 
-    frame = transcription("Iris stop", speaker=1, final=False)
+    frame = transcription("please Iris", speaker=1, final=False)
     assert await gate.process_frame(frame) == ProcessFrameResult.STOP
     assert len(starts) == 1
     assert len(resets) == 0
@@ -540,13 +540,13 @@ async def test_playback_wake_interrupt_does_not_need_downstream_addressing() -> 
     assert len(starts) == 1
     assert len(resets) == 0
 
-    wake_with_prefix = transcription("SPEAKER_1: hey Iris", speaker=1, final=False)
+    wake_with_prefix = transcription("Iris, are you there", speaker=1, final=False)
     assert await gate.process_frame(wake_with_prefix) == ProcessFrameResult.STOP
     assert len(starts) == 2
     assert len(resets) == 0
 
 
-async def test_playback_wake_interrupt_requires_leading_wake_phrase() -> None:
+async def test_playback_wake_interrupt_accepts_iris_anywhere() -> None:
     gate = PlaybackWakeGateUserTurnStartStrategy(
         playback_active=lambda: True,
         echo_guard=FakeEchoGuard(False),
@@ -557,14 +557,24 @@ async def test_playback_wake_interrupt_requires_leading_wake_phrase() -> None:
     gate.add_event_handler("on_user_turn_started", lambda *_args: starts.append(_args[-1]))
     gate.add_event_handler("on_reset_aggregation", lambda *_args: resets.append(_args[-1]))
 
-    prefixed = transcription("SPEAKER_1: please Iris", speaker=1, final=False)
+    prefixed = transcription("please Iris", speaker=1, final=False)
     assert await gate.process_frame(prefixed) == ProcessFrameResult.STOP
-    assert len(starts) == 0
+    assert len(starts) == 1
+    assert len(resets) == 0
+
+    greeting = transcription("hey Iris", speaker=1, final=False)
+    assert await gate.process_frame(greeting) == ProcessFrameResult.STOP
+    assert len(starts) == 2
+    assert len(resets) == 0
+
+    wake_command = transcription("Iris stop", speaker=1, final=False)
+    assert await gate.process_frame(wake_command) == ProcessFrameResult.STOP
+    assert len(starts) == 3
     assert len(resets) == 0
 
     non_wake = transcription("please increase your volume", speaker=1, final=True)
     assert await gate.process_frame(non_wake) == ProcessFrameResult.STOP
-    assert len(starts) == 0
+    assert len(starts) == 3
     assert len(resets) == 1
 
 
@@ -1010,7 +1020,7 @@ async def main() -> None:
     await test_playback_wake_interrupt_allows_interruption_command()
     await test_playback_wake_interrupt_wins_over_echo_filter()
     await test_playback_wake_interrupt_does_not_need_downstream_addressing()
-    await test_playback_wake_interrupt_requires_leading_wake_phrase()
+    await test_playback_wake_interrupt_accepts_iris_anywhere()
     await test_playback_echo_guard_only_filters_assistant_text()
     await test_local_playback_is_active_at_tts_start()
     await test_local_audio_output_drops_frames_after_interruption()

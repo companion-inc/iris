@@ -118,7 +118,7 @@ def wake_command_text(text: str) -> str | None:
 
 
 def has_playback_interrupt_wake_phrase(text: str) -> bool:
-    return has_transcription_wake_phrase(text)
+    return bool(WAKE_PATTERN.search(strip_speaker_context_prefix(text)))
 
 
 def is_wake_only_transcription(text: str) -> bool:
