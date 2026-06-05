@@ -235,10 +235,14 @@ final class NativeVoiceRuntime {
             let player = try AVAudioPlayer(data: Self.wavData(fromPCM16: pcm, sampleRate: sampleRate, channels: 1))
             player.volume = effect.volume
             player.prepareToPlay()
-            guard player.play() else { return }
+            guard player.play() else {
+                lastEvent = "sound-effect.\(effect.id).failed"
+                return
+            }
+            lastEvent = "sound-effect.\(effect.id).played"
             retainSoundEffectPlayer(player)
         } catch {
-            lastEvent = "sound-effect.failed"
+            lastEvent = "sound-effect.\(effect.id).failed"
         }
     }
 
@@ -440,17 +444,17 @@ private enum NativeVoiceSoundEffect {
     var volume: Float {
         switch self {
         case .wake:
-            return 0.34
+            return 0.9
         case .speaker:
-            return 0.26
+            return 0.78
         case .sound:
-            return 0.24
+            return 0.74
         case .tool, .done:
-            return 0.28
+            return 0.8
         case .error:
-            return 0.36
+            return 0.95
         case .assistantStart, .assistantStop:
-            return 0.24
+            return 0.74
         }
     }
 
@@ -459,43 +463,43 @@ private enum NativeVoiceSoundEffect {
         case .wake:
             return NativeVoiceSoundEffect.toneSchedule(
                 sampleRate: sampleRate,
-                tones: [(660, 0, 0.055), (880, 0.065, 0.07)]
+                tones: [(660, 0, 0.09), (880, 0.1, 0.12)]
             )
         case .speaker:
             return NativeVoiceSoundEffect.toneSchedule(
                 sampleRate: sampleRate,
-                tones: [(520, 0, 0.045), (780, 0.05, 0.055), (1040, 0.105, 0.055)]
+                tones: [(520, 0, 0.07), (780, 0.08, 0.08), (1040, 0.17, 0.08)]
             )
         case .sound:
             return NativeVoiceSoundEffect.toneSchedule(
                 sampleRate: sampleRate,
-                tones: [(740, 0, 0.04)]
+                tones: [(740, 0, 0.12)]
             )
         case .tool:
             return NativeVoiceSoundEffect.toneSchedule(
                 sampleRate: sampleRate,
-                tones: [(420, 0, 0.045), (560, 0.055, 0.045)]
+                tones: [(420, 0, 0.08), (560, 0.09, 0.08)]
             )
         case .done:
             return NativeVoiceSoundEffect.toneSchedule(
                 sampleRate: sampleRate,
-                tones: [(600, 0, 0.045), (900, 0.055, 0.055)]
+                tones: [(600, 0, 0.08), (900, 0.09, 0.1)]
             )
         case .error:
             return NativeVoiceSoundEffect.toneSchedule(
                 sampleRate: sampleRate,
-                tones: [(220, 0, 0.075), (185, 0.09, 0.08)]
+                tones: [(220, 0, 0.12), (185, 0.14, 0.13)]
             )
         case .assistantStart:
             return NativeVoiceSoundEffect.toneSequence(
                 sampleRate: sampleRate,
-                tones: [(660, 0.045)],
+                tones: [(660, 0.1)],
                 gap: 0
             )
         case .assistantStop:
             return NativeVoiceSoundEffect.toneSequence(
                 sampleRate: sampleRate,
-                tones: [(440, 0.05)],
+                tones: [(440, 0.11)],
                 gap: 0
             )
         }
