@@ -7,7 +7,6 @@ from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from loguru import logger
-from pipecat.audio.filters.rnnoise_filter import RNNoiseFilter
 from pipecat.frames.frames import (
     Frame,
     InterruptionFrame,
@@ -51,7 +50,6 @@ class LocalAudioRuntimeTransport:
                 audio_in_enabled=True,
                 audio_in_sample_rate=BARGE_IN_VAD_SAMPLE_RATE,
                 audio_in_channels=channels,
-                audio_in_filter=RNNoiseFilter(),
                 audio_out_enabled=True,
                 audio_out_sample_rate=sample_rate,
                 audio_out_channels=channels,
