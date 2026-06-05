@@ -440,6 +440,33 @@ async def test_default_wake_window_allows_real_followup_pacing() -> None:
     assert DEFAULT_WAKE_ACTIVE_WINDOW_SECONDS >= 10.0
 
 
+async def test_wake_only_does_not_emit_spoken_ack() -> None:
+    websocket = FakeWebSocket()
+    events = RuntimeEvents(websocket, session())
+    emitted: list[dict[str, Any]] = []
+    events.add_listener(emitted.append)
+    wake_strategy = IrisWakePhraseUserTurnStartStrategy(
+        phrases=["iris"],
+        timeout=12.0,
+        echo_guard=FakeEchoGuard(False),
+    )
+    resets: list[Any] = []
+    starts: list[Any] = []
+    wake_strategy.add_event_handler("on_reset_aggregation", lambda *_args: resets.append(_args[-1]))
+    wake_strategy.add_event_handler("on_user_turn_started", lambda *_args: starts.append(_args[-1]))
+    wake_strategy._transition_to_awake = (  # noqa: SLF001
+        lambda _phrase: setattr(wake_strategy, "_state", wake_strategy.state.__class__.AWAKE)
+    )
+
+    assert await wake_strategy.process_frame(transcription("Iris", final=False)) == ProcessFrameResult.STOP
+
+    assert wake_strategy.state.name == "AWAKE"
+    assert len(resets) == 1
+    assert starts == []
+    assert not any(message.get("type") == "assistant.text" for message in emitted)
+    assert not any(message.get("type") == "assistant.text" for message in websocket.messages)
+
+
 async def test_system_prompt_treats_user_turns_as_imperfect_speech() -> None:
     prompt = system_instruction()
 
@@ -1034,6 +1061,7 @@ async def main() -> None:
     await test_transcription_wake_phrase_allows_speaker_context_prefix()
     await test_default_sound_recognition_ignores_low_confidence_room_noise()
     await test_default_wake_window_allows_real_followup_pacing()
+    await test_wake_only_does_not_emit_spoken_ack()
     await test_system_prompt_treats_user_turns_as_imperfect_speech()
     await test_screen_vision_can_capture_jpeg()
     await test_camera_vision_can_capture_jpeg()

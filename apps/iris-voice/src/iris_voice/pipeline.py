@@ -435,17 +435,6 @@ async def run_voice_runtime(
         events.emit({"type": "assistant.text", "text": text})
         await tts.queue_frame(TTSSpeakFrame(text, append_to_context=True))
 
-    async def speak_wake_ack() -> None:
-        text = os.getenv("IRIS_WAKE_ACK_TEXT", "Yes?")
-        logger.info(
-            "iris.voice.wake.ack_queued session={} device={} text={!r}",
-            events.session_id,
-            events.device_id,
-            text,
-        )
-        events.emit({"type": "assistant.text", "text": text})
-        await tts.queue_frame(TTSSpeakFrame(text, append_to_context=False))
-
     logger.info(
         "iris.voice.turn_config wake_strategy=WakePhraseUserTurnStartStrategy local_wake_supported=false playback_gate=PlaybackWakeGateUserTurnStartStrategy start_strategy=VADUserTurnStartStrategy,TranscriptionUserTurnStartStrategy vad=SileroVADAnalyzer vad_sample_rate=16000 wake_phrases={} active_window_secs={} stop_strategy=SpeechTimeoutUserTurnStopStrategy user_turn_stop_timeout_secs={} user_speech_timeout_secs={}",
         ",".join(WAKE_PHRASES),
@@ -505,7 +494,6 @@ async def run_voice_runtime(
             events,
             wake_active_window_secs=wake_active_window_secs,
             echo_guard=playback_echo_guard,
-            on_wake_only=speak_wake_ack,
         )
         register_basic_voice_tools(
             llm,
@@ -564,7 +552,6 @@ async def run_voice_runtime(
             events,
             wake_active_window_secs=wake_active_window_secs,
             echo_guard=playback_echo_guard,
-            on_wake_only=speak_wake_ack,
         )
         register_basic_voice_tools(
             llm,
@@ -632,7 +619,6 @@ async def run_voice_runtime(
             events,
             wake_active_window_secs=wake_active_window_secs,
             echo_guard=playback_echo_guard,
-            on_wake_only=speak_wake_ack,
         )
         register_basic_voice_tools(
             llm,

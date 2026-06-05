@@ -17,6 +17,7 @@ This preserves the intended interruption rule:
 - Playback-time transcripts are still emitted to the UI.
 - Non-wake assistant echo is still blocked from starting a user turn or reaching chat.
 - Non-wake final transcripts during playback still reset aggregation instead of reaching chat.
+- Wake-only detection must not queue a spoken TTS acknowledgement. The native `wake.accepted` sound is the acknowledgement; spoken `Yes?` creates playback that can mask or block the user's immediate follow-up.
 
 ## Verification
 
