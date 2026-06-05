@@ -444,17 +444,17 @@ private enum NativeVoiceSoundEffect {
     var volume: Float {
         switch self {
         case .wake:
-            return 0.9
-        case .speaker:
             return 0.78
+        case .speaker:
+            return 0.68
         case .sound:
-            return 0.74
+            return 0.64
         case .tool, .done:
-            return 0.8
+            return 0.7
         case .error:
-            return 0.95
+            return 0.82
         case .assistantStart, .assistantStop:
-            return 0.74
+            return 0.64
         }
     }
 
@@ -548,7 +548,7 @@ private enum NativeVoiceSoundEffect {
         for frame in 0..<frames {
             let envelope = min(1.0, min(Double(frame) / 240.0, Double(frames - frame) / 240.0))
             let phase = 2.0 * Double.pi * frequency * Double(frame) / Double(sampleRate)
-            var sample = Int16((sin(phase) * envelope * 0.42 * Double(Int16.max)).rounded())
+            var sample = Int16((sin(phase) * envelope * 0.55 * Double(Int16.max)).rounded())
             pcm.append(Data(bytes: &sample, count: MemoryLayout<Int16>.size))
         }
     }

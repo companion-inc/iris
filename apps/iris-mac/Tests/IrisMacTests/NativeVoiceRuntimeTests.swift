@@ -55,7 +55,7 @@ final class NativeVoiceRuntimeTests: XCTestCase {
         for eventType in eventTypes {
             XCTAssertGreaterThanOrEqual(
                 NativeVoiceRuntime.soundEffectVolume(forVoiceEvent: eventType) ?? 0,
-                0.74,
+                0.64,
                 eventType
             )
         }
