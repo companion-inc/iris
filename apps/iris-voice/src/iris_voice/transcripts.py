@@ -75,10 +75,11 @@ class TranscriptRelay(FrameProcessor):
                 speaker = speaker_label_for_words(words)
                 wake_detected = has_transcription_wake_phrase(text)
                 playback_active = self._playback_active()
+                followup_expected = self._events.followup_expected()
                 playback_interrupt_wake = (
                     playback_active and has_playback_interrupt_wake_phrase(text)
                 )
-                block_llm_for_playback = playback_active and not wake_detected
+                block_llm_for_playback = playback_active and not wake_detected and not followup_expected
                 is_playback_echo = bool(
                     self._playback_echo_guard and self._playback_echo_guard.is_playback_echo(frame)
                 )
@@ -200,6 +201,10 @@ class TranscriptRelay(FrameProcessor):
                                     lookback_seconds=wake_context_seconds(),
                                     max_chars=wake_context_max_chars(),
                                 )
+                                if wake_context is None and self._events.consume_followup_expected(
+                                    reason="transcript_final"
+                                ):
+                                    wake_context = ""
                         if wake_context is not None:
                             post_wake_context = (
                                 "Iris just accepted a wake phrase. Treat the current user turn "

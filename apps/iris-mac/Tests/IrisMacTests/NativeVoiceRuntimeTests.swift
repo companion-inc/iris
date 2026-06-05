@@ -40,6 +40,27 @@ final class NativeVoiceRuntimeTests: XCTestCase {
         XCTAssertNil(NativeVoiceRuntime.soundEffectID(forVoiceEvent: "transcript.final"))
     }
 
+    func testVoiceEventSoundEffectsUseAudibleVolume() {
+        let eventTypes = [
+            "wake.accepted",
+            "speaker.identified",
+            "sound.recognition.detected",
+            "tool.started",
+            "tool.finished",
+            "tool.failed",
+            "assistant.audio.started",
+            "assistant.audio.stopped"
+        ]
+
+        for eventType in eventTypes {
+            XCTAssertGreaterThanOrEqual(
+                NativeVoiceRuntime.soundEffectVolume(forVoiceEvent: eventType) ?? 0,
+                0.24,
+                eventType
+            )
+        }
+    }
+
     @MainActor
     func testLocalAudioStatusProcessesTranscriptBeforeLaterWakeStopEvent() {
         let runtime = NativeVoiceRuntime(api: IrisAPI())

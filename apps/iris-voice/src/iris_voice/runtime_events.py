@@ -24,6 +24,7 @@ class RuntimeEvents:
         self._pending_agent_tool_results: dict[str, dict[str, Any]] = {}
         self._recent_transcripts: deque[dict[str, Any]] = deque(maxlen=240)
         self._wake_context_pending = False
+        self._followup_expected_until: float | None = None
         self._user_speaking = False
         self._bot_speaking = False
         self._assistant_responding = False
@@ -204,6 +205,38 @@ class RuntimeEvents:
                 reason,
             )
         self._wake_context_pending = False
+
+    def mark_followup_expected(self, *, reason: str, timeout_seconds: float = 12.0) -> None:
+        timeout_seconds = max(0.0, timeout_seconds)
+        self._followup_expected_until = time.monotonic() + timeout_seconds
+        logger.info(
+            "iris.voice.followup_expected session={} device={} reason={} timeout_secs={}",
+            self._session.session_id,
+            self._session.device_id,
+            reason,
+            timeout_seconds,
+        )
+
+    def followup_expected(self) -> bool:
+        deadline = self._followup_expected_until
+        if deadline is None:
+            return False
+        if time.monotonic() <= deadline:
+            return True
+        self._followup_expected_until = None
+        return False
+
+    def consume_followup_expected(self, *, reason: str) -> bool:
+        if not self.followup_expected():
+            return False
+        self._followup_expected_until = None
+        logger.info(
+            "iris.voice.followup_expected_consumed session={} device={} reason={}",
+            self._session.session_id,
+            self._session.device_id,
+            reason,
+        )
+        return True
 
     def remember_transcript_context(
         self,

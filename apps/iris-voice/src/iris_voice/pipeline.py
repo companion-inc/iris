@@ -198,6 +198,7 @@ def attach_assistant_transcript_persistence(
         )
         if not interrupted and wake_strategy and text.rstrip().endswith("?"):
             wake_strategy.mark_followup_expected(reason="assistant_turn_stopped_question")
+            events.mark_followup_expected(reason="assistant_turn_stopped_question")
         logger.info(
             "iris.voice.assistant_transcript_persisted session={} device={} interrupted={} chars={}",
             session.session_id,

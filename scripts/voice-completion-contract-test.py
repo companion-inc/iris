@@ -778,6 +778,51 @@ async def test_transcript_relay_hides_echo_and_blocks_chat() -> None:
     assert not any(message.get("type") == "transcript.final" for message in websocket.messages)
 
 
+async def test_transcript_relay_routes_expected_followup_during_playback_tail() -> None:
+    websocket = FakeWebSocket()
+    events = RuntimeEvents(websocket, session())
+    events.mark_followup_expected(reason="assistant_turn_stopped_question")
+    relay = CapturingTranscriptRelay(
+        events,
+        playback_active=lambda: True,
+        playback_echo_guard=FakeEchoGuard(False),
+    )
+
+    await relay.process_frame(
+        transcription("I was just checking the connection.", speaker=0),
+        FrameDirection.DOWNSTREAM,
+    )
+    await asyncio.sleep(0)
+
+    assert len(relay.pushed_frames) == 1
+    followup_frame = relay.pushed_frames[0]
+    assert isinstance(followup_frame, TranscriptionFrame)
+    assert "Iris just accepted a wake phrase" in followup_frame.text
+    assert "Current user turn:" in followup_frame.text
+    assert "I was just checking the connection." in followup_frame.text
+    assert not events.followup_expected()
+
+
+async def test_transcript_relay_does_not_route_playback_echo_as_expected_followup() -> None:
+    websocket = FakeWebSocket()
+    events = RuntimeEvents(websocket, session())
+    events.mark_followup_expected(reason="assistant_turn_stopped_question")
+    relay = CapturingTranscriptRelay(
+        events,
+        playback_active=lambda: True,
+        playback_echo_guard=FakeEchoGuard(True),
+    )
+
+    await relay.process_frame(
+        transcription("I can hear you loud and clear.", speaker=2),
+        FrameDirection.DOWNSTREAM,
+    )
+    await asyncio.sleep(0)
+
+    assert relay.pushed_frames == []
+    assert events.followup_expected()
+
+
 async def test_transcript_relay_interrupts_playback_when_transcriber_hears_iris() -> None:
     websocket = FakeWebSocket()
     events = RuntimeEvents(websocket, session())
@@ -1078,6 +1123,8 @@ async def main() -> None:
     await test_transcript_relay_marks_post_wake_turn_before_downstream_wake_event()
     await test_transcript_relay_ingests_but_blocks_llm_while_playback_active()
     await test_transcript_relay_hides_echo_and_blocks_chat()
+    await test_transcript_relay_routes_expected_followup_during_playback_tail()
+    await test_transcript_relay_does_not_route_playback_echo_as_expected_followup()
     await test_transcript_relay_interrupts_playback_when_transcriber_hears_iris()
     await test_regular_turn_strategy_accepts_assistant_followup_after_question()
     await test_conversation_busy_guard()

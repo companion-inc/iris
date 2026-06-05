@@ -159,6 +159,16 @@ final class NativeVoiceRuntime {
         soundEffect(forVoiceEvent: type)?.id
     }
 
+    nonisolated static func soundEffectVolume(forVoiceEvent type: String) -> Float? {
+        if type == "assistant.audio.started" {
+            return NativeVoiceSoundEffect.assistantStart.volume
+        }
+        if type == "assistant.audio.stopped" {
+            return NativeVoiceSoundEffect.assistantStop.volume
+        }
+        return soundEffect(forVoiceEvent: type)?.volume
+    }
+
     nonisolated private static func soundEffect(forVoiceEvent type: String) -> NativeVoiceSoundEffect? {
         switch type {
         case "wake.accepted":
@@ -430,17 +440,17 @@ private enum NativeVoiceSoundEffect {
     var volume: Float {
         switch self {
         case .wake:
-            return 0.12
+            return 0.34
         case .speaker:
-            return 0.09
+            return 0.26
         case .sound:
-            return 0.07
+            return 0.24
         case .tool, .done:
-            return 0.09
+            return 0.28
         case .error:
-            return 0.1
+            return 0.36
         case .assistantStart, .assistantStop:
-            return 0.08
+            return 0.24
         }
     }
 
