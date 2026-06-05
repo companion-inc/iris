@@ -60,7 +60,21 @@ final class NativeVoiceRuntime {
     }
 
     func stopSpeaking() {
-        lastEvent = "local-audio.stop-speaking.unavailable"
+        lastEvent = "local-audio.stop-speaking.requested"
+        Task { [api] in
+            do {
+                let status = try await api.stopLocalAudioSpeaking(reason: "swift_ui_stop_speaking")
+                await MainActor.run {
+                    self.applyLocalAudioStatus(status)
+                    self.lastEvent = status.recentEvents?.last?.type ?? "local-audio.stop-speaking.sent"
+                }
+            } catch {
+                await MainActor.run {
+                    self.lastEvent = "local-audio.stop-speaking.failed"
+                    self.status = error.localizedDescription
+                }
+            }
+        }
     }
 
     func setStatus(_ nextStatus: String) {

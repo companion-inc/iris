@@ -24,6 +24,14 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+            if appState.nativeVoiceRunning {
+                Button {
+                    appState.stopNativeSpeech()
+                } label: {
+                    Label("Stop Speech", systemImage: "speaker.slash")
+                }
+                .buttonStyle(.borderedProminent)
+            }
             Button {
                 appState.clearHome()
             } label: {

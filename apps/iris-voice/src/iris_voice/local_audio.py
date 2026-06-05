@@ -315,6 +315,7 @@ class LocalAudioRuntimeManager:
         self._watchdog_task: asyncio.Task[None] | None = None
         self._completion_task: asyncio.Task[None] | None = None
         self._pipeline_task: PipelineTask | None = None
+        self._transport: LocalAudioRuntimeTransport | None = None
         self._session: VoiceSessionContext | None = None
         self._events: RuntimeEvents | None = None
         self._started_at: float | None = None
@@ -355,6 +356,7 @@ class LocalAudioRuntimeManager:
             channels=session.channels,
             events=self._events,
         )
+        self._transport = transport
 
         def on_task_ready(task: PipelineTask) -> None:
             self._pipeline_task = task
@@ -400,6 +402,8 @@ class LocalAudioRuntimeManager:
                 )
             finally:
                 await transport.close()
+                if self._transport is transport:
+                    self._transport = None
                 logger.info(
                     "iris.voice.local_audio.stopped session={} device={}",
                     session.session_id,
@@ -420,6 +424,21 @@ class LocalAudioRuntimeManager:
                 pass
         self._watchdog_task = None
         return await self._stop_pipeline(reason=reason)
+
+    async def stop_speaking(self, *, reason: str = "user_stop_speaking") -> dict[str, Any]:
+        interrupted = False
+        if self._transport is not None:
+            interrupted = await self._transport.interrupt_playback(reason=reason)
+        logger.info(
+            "iris.voice.local_audio.stop_speaking reason={} interrupted={}",
+            reason,
+            interrupted,
+        )
+        return {
+            **self.status(),
+            "interrupted": interrupted,
+            "reason": reason,
+        }
 
     async def _stop_pipeline(self, *, reason: str) -> dict[str, Any]:
         if self._completion_task is not None and not self._completion_task.done():

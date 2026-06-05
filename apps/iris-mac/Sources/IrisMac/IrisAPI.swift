@@ -87,6 +87,12 @@ actor IrisAPI {
         ])
     }
 
+    func stopLocalAudioSpeaking(reason: String = "user_stop_speaking") async throws -> LocalAudioRuntimeStatus {
+        try await postLocalAudio(path: "local-audio/stop-speaking", body: [
+            "reason": reason
+        ])
+    }
+
     func localAudioStatus() async -> LocalAudioRuntimeStatus? {
         await decode(LocalAudioRuntimeStatus.self, from: voiceURL.appending(path: "local-audio/status"))
     }

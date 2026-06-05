@@ -72,6 +72,11 @@ def create_app() -> FastAPI:
         reason = (payload or {}).get("reason") or "stopped"
         return await local_audio.stop(reason=reason)
 
+    @app.post("/local-audio/stop-speaking")
+    async def local_audio_stop_speaking(payload: dict[str, str] | None = None):
+        reason = (payload or {}).get("reason") or "user_stop_speaking"
+        return await local_audio.stop_speaking(reason=reason)
+
     @app.websocket("/ws")
     async def websocket_endpoint(websocket: WebSocket):
         token = websocket.query_params.get("token")
