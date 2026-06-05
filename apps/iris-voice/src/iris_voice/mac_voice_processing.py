@@ -2,23 +2,12 @@ from __future__ import annotations
 
 import asyncio
 import audioop
-import sys
 from array import array
 
 from loguru import logger
 from pipecat.frames.frames import InputAudioRawFrame, StartFrame
 from pipecat.transports.base_input import BaseInputTransport
 from pipecat.transports.base_transport import TransportParams
-
-
-def mac_voice_processing_available() -> bool:
-    if sys.platform != "darwin":
-        return False
-    try:
-        import AVFoundation  # noqa: F401
-    except Exception:
-        return False
-    return True
 
 
 class MacVoiceProcessingInputTransport(BaseInputTransport):
@@ -33,6 +22,7 @@ class MacVoiceProcessingInputTransport(BaseInputTransport):
         self._channels = 1
         self._ratecv_state = None
         self._callback_frames = 0
+        self._tap_block = None
 
     async def start(self, frame: StartFrame):
         await super().start(frame)
@@ -54,16 +44,17 @@ class MacVoiceProcessingInputTransport(BaseInputTransport):
         if not output_ok:
             raise RuntimeError(f"failed to enable macOS voice-processing output: {output_error}")
 
-        hardware_format = self._input_node.inputFormatForBus_(0)
-        self._source_sample_rate = int(hardware_format.sampleRate())
+        source_format = self._input_node.outputFormatForBus_(0)
+        self._source_sample_rate = int(source_format.sampleRate())
         fmt = AVFoundation.AVAudioFormat.alloc().initWithCommonFormat_sampleRate_channels_interleaved_(
-            hardware_format.commonFormat(),
-            hardware_format.sampleRate(),
+            AVFoundation.AVAudioPCMFormatFloat32,
+            source_format.sampleRate(),
             1,
             False,
         )
         buffer_size = max(480, int(self._source_sample_rate / 50))
-        self._input_node.installTapOnBus_bufferSize_format_block_(0, buffer_size, fmt, self._tap)
+        self._tap_block = self._tap
+        self._input_node.installTapOnBus_bufferSize_format_block_(0, buffer_size, fmt, self._tap_block)
         started, error = self._engine.startAndReturnError_(None)
         if not started:
             self._input_node.removeTapOnBus_(0)
@@ -73,7 +64,7 @@ class MacVoiceProcessingInputTransport(BaseInputTransport):
             "iris.voice.mac_voice_processing.started source_sample_rate={} target_sample_rate={} source_channels={} target_channels={}",
             self._source_sample_rate,
             self._target_sample_rate,
-            int(hardware_format.channelCount()),
+            int(source_format.channelCount()),
             self._channels,
         )
         await self.set_transport_ready(frame)
@@ -90,6 +81,7 @@ class MacVoiceProcessingInputTransport(BaseInputTransport):
             self._engine.stop()
             self._engine = None
         self._ratecv_state = None
+        self._tap_block = None
 
     def _tap(self, buffer, _when) -> None:
         if self._target_sample_rate <= 0:

@@ -668,9 +668,11 @@ async def test_local_audio_watchdog_detects_stalled_input_stream() -> None:
         assert manager._stale_audio_reason() == "audio_input_stalled"  # noqa: SLF001
 
         manager._last_audio_activity_at = now  # noqa: SLF001
+        manager._last_transcript_at = None  # noqa: SLF001
+        assert manager._is_stale_transcription_stream() is False  # noqa: SLF001
+
         manager._last_transcript_at = now - 120  # noqa: SLF001
-        assert manager._is_stale_transcription_stream() is True  # noqa: SLF001
-        assert manager._stale_audio_reason() == "stale_transcripts"  # noqa: SLF001
+        assert manager._is_stale_transcription_stream() is False  # noqa: SLF001
     finally:
         manager._task.cancel()  # noqa: SLF001
         try:

@@ -9,7 +9,7 @@
 
 ## Change
 
-- Added `iris_voice.voice_filters.build_pipecat_input_filter()` to wire configured Pipecat `audio_in_filter` implementations into `LocalAudioTransportParams`.
+- Added `iris_voice.voice_filters.build_pipecat_input_filter()` to wire configured Pipecat `audio_in_filter` implementations into the sidecar transport params.
 - Added Pipecat `aic` extra to the sidecar dependency so `pipecat.audio.filters.aic_filter.AICFilter` imports when configured.
 - Removed `InputAudioAutoGain` from the runtime pipeline and deleted the old gain helper/test. This avoids amplifying Iris playback leakage into Deepgram/VAD.
 
@@ -22,15 +22,20 @@
 ## Follow-up Change
 
 - Added `MacVoiceProcessingInputTransport`, a Pipecat `BaseInputTransport` subclass in the Python sidecar.
-- It uses PyObjC/AVFoundation to enable macOS voice-processing I/O, captures input through an AVAudioEngine tap, converts float input to mono PCM16, resamples 48 kHz input to Pipecat's 16 kHz STT path, and pushes `InputAudioRawFrame` into the same Pipecat pipeline.
-- `LocalAudioRuntimeTransport` now defaults to this sidecar input on Darwin and can be disabled with `IRIS_MAC_VOICE_PROCESSING=0`.
+- It uses PyObjC/AVFoundation from Python to enable Apple's macOS voice-processing I/O, captures input through a retained AVAudioEngine tap block, converts float input to mono PCM16, resamples 48 kHz input to Pipecat's 16 kHz STT path, and pushes `InputAudioRawFrame` into the same Pipecat pipeline.
+- The AVAudioEngine tap uses the input node's output format and an explicit Float32 mono tap format. A direct Python harness proved callbacks arrive in the same Python environment; retaining the sidecar tap block fixed the installed-app callback loss.
+- `LocalAudioRuntimeTransport` now uses this sidecar input path directly on macOS. The old Pipecat `LocalAudioTransport` input fallback was removed from this runtime.
+- Added `InputAudioActivityRelay`, a sidecar Pipecat processor that marks input activity without changing audio samples, so the watchdog does not restart a healthy input stream.
 - Swift remains UI/launcher only; no Swift audio/runtime logic was added.
 
 ## Live Verification
 
 - Restarted `/Users/advaitpaliwal/Applications/Iris.app` with `./apps/iris-mac/scripts/open-macos.sh`.
-- `/local-audio/status` returned `running=true`, `lastError=null`.
+- `/local-audio/status` returned `running=true`, `lastError=null`, `playbackActive=false`.
 - `iris-voice.log` showed `iris.voice.local_audio.input_transport=mac_voice_processing`.
-- `iris-voice.log` showed `iris.voice.mac_voice_processing.started source_sample_rate=48000 target_sample_rate=16000 source_channels=7 target_channels=1`.
-- `iris-voice.log` showed `iris.voice.mac_voice_processing.input_frame frames=1 bytes=3200 sample_rate=16000 channels=1`.
+- `iris-voice.log` showed `iris.voice.mac_voice_processing.started source_sample_rate=48000 target_sample_rate=16000 source_channels=9 target_channels=1`.
+- `iris-voice.log` showed `iris.voice.mac_voice_processing.input_frame frames=1 bytes=3200 sample_rate=16000 channels=1 rms=30`.
+- `iris-voice.log` showed continuous frames through `frames=1400` over a 145 second live run with no `watchdog_restart`.
+- `iris-voice.log` showed `iris.voice.input_audio_activity` every 10 seconds, proving the watchdog sees real Pipecat input frames rather than transcript timing.
 - `iris-voice.log` showed `DeepgramSTTService#0: Websocket connection initialized`.
+- BlackHole 2ch loopback check was restored safely afterward. The voice-processing sidecar captured frames from BlackHole but RMS stayed 0, so BlackHole did not prove speech transcription under macOS voice processing. Real mic input did prove the installed sidecar capture path.
