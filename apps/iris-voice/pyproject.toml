@@ -8,7 +8,7 @@ dependencies = [
   "fastapi>=0.124.0",
   "httpx>=0.28.1",
   "loguru>=0.7.3",
-  "pipecat-ai[deepgram,google,local,silero]==1.2.1",
+  "pipecat-ai[deepgram,google,local,rnnoise,silero]==1.2.1",
   "uvicorn[standard]>=0.38.0",
 ]
 
