@@ -461,6 +461,7 @@ async def run_voice_runtime(
         TranscriptRelay(
             events,
             playback_active=transport.is_playback_active,
+            interrupt_playback=lambda reason: transport.interrupt_playback(reason=reason),
             playback_echo_guard=playback_echo_guard,
             audio_buffer=speaker_audio_buffer,
             speaker_matcher=speaker_matcher,

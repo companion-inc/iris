@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import os
 import re
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from loguru import logger
@@ -18,6 +18,7 @@ from .transcript_types import TranscriptWord
 from .turns.playback_echo import PlaybackEchoGuard
 from .turns.wake import (
     WAKE_PATTERN,
+    has_playback_interrupt_wake_phrase,
     has_transcription_wake_phrase,
     is_likely_wake_residue,
     wake_command_text,
@@ -40,6 +41,7 @@ class TranscriptRelay(FrameProcessor):
         events: RuntimeEvents,
         *,
         playback_active: Callable[[], bool] | None = None,
+        interrupt_playback: Callable[[str], Awaitable[bool]] | None = None,
         playback_echo_guard: PlaybackEchoGuard | None = None,
         audio_buffer: SpeakerAudioBuffer | None = None,
         speaker_matcher: SpeakerIdentityMatcher | None = None,
@@ -48,6 +50,7 @@ class TranscriptRelay(FrameProcessor):
         super().__init__()
         self._events = events
         self._playback_active = playback_active or (lambda: False)
+        self._interrupt_playback = interrupt_playback
         self._playback_echo_guard = playback_echo_guard
         self._audio_buffer = audio_buffer
         self._speaker_matcher = speaker_matcher
@@ -71,7 +74,11 @@ class TranscriptRelay(FrameProcessor):
                 words, confidence = deepgram_words_and_confidence(frame)
                 speaker = speaker_label_for_words(words)
                 wake_detected = has_transcription_wake_phrase(text)
-                block_llm_for_playback = self._playback_active() and not wake_detected
+                playback_active = self._playback_active()
+                playback_interrupt_wake = (
+                    playback_active and has_playback_interrupt_wake_phrase(text)
+                )
+                block_llm_for_playback = playback_active and not wake_detected
                 self._events.emit(
                     {
                         "type": "transcript.final" if is_final else "transcript.interim",
@@ -83,6 +90,16 @@ class TranscriptRelay(FrameProcessor):
                         "confidence": confidence,
                     }
                 )
+                if playback_interrupt_wake and self._interrupt_playback:
+                    interrupted = await self._interrupt_playback("wake_transcript")
+                    logger.info(
+                        "iris.voice.transcript_playback_wake_interrupt session={} device={} final={} interrupted={} text={!r}",
+                        self._events.session_id,
+                        self._events.device_id,
+                        is_final,
+                        interrupted,
+                        debug_transcript_text(text),
+                    )
                 if self._playback_echo_guard and self._playback_echo_guard.is_playback_echo(frame):
                     logger.info(
                         "iris.voice.transcript_filtered_playback_echo final={} session={} device={} speaker={} words={} chars={} wake_candidate={} text={!r}",

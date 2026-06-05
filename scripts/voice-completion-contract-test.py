@@ -800,6 +800,29 @@ async def test_transcript_relay_shows_echo_but_blocks_chat() -> None:
     assert any(message.get("type") == "transcript.final" for message in websocket.messages)
 
 
+async def test_transcript_relay_interrupts_playback_when_transcriber_hears_iris() -> None:
+    websocket = FakeWebSocket()
+    events = RuntimeEvents(websocket, session())
+    interrupted: list[str] = []
+
+    async def interrupt_playback(reason: str) -> bool:
+        interrupted.append(reason)
+        return True
+
+    relay = CapturingTranscriptRelay(
+        events,
+        playback_active=lambda: True,
+        interrupt_playback=interrupt_playback,
+    )
+
+    frame = transcription("please Iris stop for a second", speaker=1, final=False)
+    await relay.process_frame(frame, FrameDirection.DOWNSTREAM)
+    await asyncio.sleep(0)
+
+    assert interrupted == ["wake_transcript"]
+    assert relay.pushed_frames == [frame]
+
+
 async def test_regular_turn_strategy_accepts_assistant_followup_after_question() -> None:
     wake_strategy = IrisWakePhraseUserTurnStartStrategy(
         phrases=["iris"],
@@ -1078,6 +1101,7 @@ async def main() -> None:
     await test_transcript_relay_marks_post_wake_turn_before_downstream_wake_event()
     await test_transcript_relay_ingests_but_blocks_llm_while_playback_active()
     await test_transcript_relay_shows_echo_but_blocks_chat()
+    await test_transcript_relay_interrupts_playback_when_transcriber_hears_iris()
     await test_regular_turn_strategy_accepts_assistant_followup_after_question()
     await test_conversation_busy_guard()
     await test_many_pending_tool_results_clear_without_batch_injection()

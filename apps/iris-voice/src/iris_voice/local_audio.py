@@ -94,6 +94,16 @@ class LocalAudioRuntimeTransport:
     def is_playback_active(self) -> bool:
         return self._playback_active or time.monotonic() < self._playback_active_until
 
+    async def interrupt_playback(self, *, reason: str) -> bool:
+        if not self.is_playback_active():
+            logger.info("iris.voice.local_audio.interrupt_inactive reason={}", reason)
+            return False
+        if self._direct_output is not None:
+            await self._direct_output.handle_downstream_frame(InterruptionFrame())
+        self._mark_playback_interrupted()
+        logger.info("iris.voice.local_audio.interrupt_direct reason={}", reason)
+        return True
+
     def _mark_playback_started(self) -> None:
         if self._playback_stop_task and not self._playback_stop_task.done():
             self._playback_stop_task.cancel()

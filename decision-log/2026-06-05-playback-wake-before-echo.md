@@ -14,6 +14,7 @@ This preserves the intended interruption rule:
 
 - `Iris`, `hey Iris`, `please Iris`, or `Iris stop` can interrupt playback.
 - The wake transcript is consumed by the playback gate as an interruption signal; any extra words in that same transcript are not treated as a user command.
+- The always-on STT transcript relay cuts playback as soon as a playback-time transcript contains `iris`; interruption does not depend on VAD.
 - Playback-time transcripts are still emitted to the UI.
 - Non-wake assistant echo is still blocked from starting a user turn or reaching chat.
 - Non-wake final transcripts during playback still reset aggregation instead of reaching chat.
