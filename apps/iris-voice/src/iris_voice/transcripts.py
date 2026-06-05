@@ -79,16 +79,8 @@ class TranscriptRelay(FrameProcessor):
                     playback_active and has_playback_interrupt_wake_phrase(text)
                 )
                 block_llm_for_playback = playback_active and not wake_detected
-                self._events.emit(
-                    {
-                        "type": "transcript.final" if is_final else "transcript.interim",
-                        "text": text,
-                        "final": is_final,
-                        "wakeDetected": wake_detected,
-                        "speaker": speaker,
-                        "words": words,
-                        "confidence": confidence,
-                    }
+                is_playback_echo = bool(
+                    self._playback_echo_guard and self._playback_echo_guard.is_playback_echo(frame)
                 )
                 if playback_interrupt_wake and self._interrupt_playback:
                     interrupted = await self._interrupt_playback("wake_transcript")
@@ -100,7 +92,7 @@ class TranscriptRelay(FrameProcessor):
                         interrupted,
                         debug_transcript_text(text),
                     )
-                if self._playback_echo_guard and self._playback_echo_guard.is_playback_echo(frame):
+                if is_playback_echo:
                     logger.info(
                         "iris.voice.transcript_filtered_playback_echo final={} session={} device={} speaker={} words={} chars={} wake_candidate={} text={!r}",
                         is_final,
@@ -113,6 +105,17 @@ class TranscriptRelay(FrameProcessor):
                         debug_transcript_text(text),
                     )
                     return
+                self._events.emit(
+                    {
+                        "type": "transcript.final" if is_final else "transcript.interim",
+                        "text": text,
+                        "final": is_final,
+                        "wakeDetected": wake_detected,
+                        "speaker": speaker,
+                        "words": words,
+                        "confidence": confidence,
+                    }
+                )
                 if is_final:
                     context_parts: list[str] = []
                     for group in speaker_word_groups(words, text):

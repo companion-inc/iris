@@ -780,7 +780,7 @@ async def test_transcript_relay_ingests_but_blocks_llm_while_playback_active() -
     assert any(message.get("type") == "transcript.final" for message in websocket.messages)
 
 
-async def test_transcript_relay_shows_echo_but_blocks_chat() -> None:
+async def test_transcript_relay_hides_echo_and_blocks_chat() -> None:
     websocket = FakeWebSocket()
     events = RuntimeEvents(websocket, session())
     emitted: list[dict[str, Any]] = []
@@ -796,8 +796,8 @@ async def test_transcript_relay_shows_echo_but_blocks_chat() -> None:
     await asyncio.sleep(0)
 
     assert relay.pushed_frames == []
-    assert any(message.get("type") == "transcript.final" for message in emitted)
-    assert any(message.get("type") == "transcript.final" for message in websocket.messages)
+    assert not any(message.get("type") == "transcript.final" for message in emitted)
+    assert not any(message.get("type") == "transcript.final" for message in websocket.messages)
 
 
 async def test_transcript_relay_interrupts_playback_when_transcriber_hears_iris() -> None:
@@ -1100,7 +1100,7 @@ async def main() -> None:
     await test_noop_tool_finishes_without_running_llm()
     await test_transcript_relay_marks_post_wake_turn_before_downstream_wake_event()
     await test_transcript_relay_ingests_but_blocks_llm_while_playback_active()
-    await test_transcript_relay_shows_echo_but_blocks_chat()
+    await test_transcript_relay_hides_echo_and_blocks_chat()
     await test_transcript_relay_interrupts_playback_when_transcriber_hears_iris()
     await test_regular_turn_strategy_accepts_assistant_followup_after_question()
     await test_conversation_busy_guard()
