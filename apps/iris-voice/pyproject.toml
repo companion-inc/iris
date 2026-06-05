@@ -8,7 +8,9 @@ dependencies = [
   "fastapi>=0.124.0",
   "httpx>=0.28.1",
   "loguru>=0.7.3",
-  "pipecat-ai[deepgram,google,local,silero]==1.2.1",
+  "pipecat-ai[aic,deepgram,google,local,silero]==1.2.1",
+  "pyobjc-framework-avfoundation>=12.2",
+  "pyobjc-framework-coreaudio>=12.2",
   "uvicorn[standard]>=0.38.0",
 ]
 

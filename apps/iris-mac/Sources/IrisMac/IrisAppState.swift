@@ -30,6 +30,7 @@ final class IrisAppState {
     var openAIAPIKeyConfigured = false
     var nativeVoiceStatus: String { voiceRuntime.status }
     var nativeVoiceRunning: Bool { voiceRuntime.isRunning }
+    var nativeVoiceAssistantSpeaking: Bool { voiceRuntime.isAssistantSpeaking }
     var nativeVoiceLastEvent: String { voiceRuntime.lastEvent }
     var nativeVoiceInputFrames: Int { voiceRuntime.inputFrames }
     var nativeVoiceOutputFrames: Int { voiceRuntime.outputFrames }

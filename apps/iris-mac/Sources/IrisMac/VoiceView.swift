@@ -52,7 +52,7 @@ struct VoiceView: View {
                         Button("Stop speech") {
                             appState.stopNativeSpeech()
                         }
-                        .disabled(!appState.nativeVoiceRunning)
+                        .disabled(!appState.nativeVoiceAssistantSpeaking)
                         Button("Stop services") {
                             appState.stopNativeVoice()
                             appState.bridgeServer.stop()

@@ -11,6 +11,7 @@ final class NativeVoiceRuntime {
     private var soundEffectLastPlayed: [String: TimeInterval] = [:]
     private(set) var sessionID: String?
     private(set) var isRunning = false
+    private(set) var isAssistantSpeaking = false
     private(set) var status = "Idle"
     private(set) var lastEvent = "None"
     fileprivate(set) var inputFrames = 0
@@ -26,6 +27,7 @@ final class NativeVoiceRuntime {
         guard !isRunning else { return }
         do {
             status = "Starting Pipecat audio"
+            isAssistantSpeaking = false
             liveTranscripts.removeAll()
             seenLocalAudioEventKeys.removeAll()
             let voiceSession = try await api.createVoiceSession(sampleRate: 16_000, channels: 1)
@@ -54,6 +56,7 @@ final class NativeVoiceRuntime {
         }
         sessionID = nil
         isRunning = false
+        isAssistantSpeaking = false
         status = "Idle"
         liveTranscripts.removeAll()
         seenLocalAudioEventKeys.removeAll()
@@ -291,6 +294,7 @@ final class NativeVoiceRuntime {
 
     func applyLocalAudioStatus(_ localStatus: LocalAudioRuntimeStatus) {
         isRunning = localStatus.running
+        isAssistantSpeaking = localStatus.playbackActive == true
         if let nextSessionID = localStatus.sessionId, nextSessionID != sessionID {
             sessionID = nextSessionID
             liveTranscripts.removeAll()
@@ -309,6 +313,8 @@ final class NativeVoiceRuntime {
         }
         if let error = localStatus.lastError, !error.isEmpty {
             status = error
+        } else if isAssistantSpeaking {
+            status = "Iris speaking"
         } else if localStatus.running {
             status = "Listening"
         } else {
@@ -340,9 +346,11 @@ final class NativeVoiceRuntime {
                 timestamp: event.at
             )
         case "assistant.audio.started":
+            isAssistantSpeaking = true
             playSoundEffect(.assistantStart)
             status = "Iris speaking"
         case "assistant.audio.stopped":
+            isAssistantSpeaking = false
             playSoundEffect(.assistantStop)
             status = "Listening"
         default:

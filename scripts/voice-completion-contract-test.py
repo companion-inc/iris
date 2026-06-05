@@ -13,7 +13,6 @@ from typing import Any
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "apps" / "iris-voice" / "src"))
 
-from iris_voice.audio_gain import apply_auto_gain, pcm_rms  # noqa: E402
 from iris_voice.agent_completion_events import (  # noqa: E402
     AgentCompletionSubscriber,
     desktop_completion_message,
@@ -376,29 +375,6 @@ async def test_wake_phrase_only_matches_direct_turns() -> None:
         assert has_leading_wake_phrase(text), text
     for text in object_references:
         assert not has_leading_wake_phrase(text), text
-
-
-async def test_input_auto_gain_lifts_far_field_audio_without_clipping() -> None:
-    quiet = pcm_tone(sample_count=200, amplitude=400)
-    amplified, rms_before, rms_after, gain = apply_auto_gain(
-        quiet,
-        target_rms=6000,
-        max_gain=12,
-    )
-    assert rms_before == 400
-    assert gain == 12
-    assert 4700 <= rms_after <= 4900
-    assert pcm_rms(amplified) == rms_after
-
-    loud = pcm_tone(sample_count=200, amplitude=7000)
-    unchanged, loud_before, loud_after, loud_gain = apply_auto_gain(
-        loud,
-        target_rms=6000,
-        max_gain=12,
-    )
-    assert unchanged == loud
-    assert loud_before == loud_after == 7000
-    assert loud_gain == 1.0
 
 
 async def test_transcription_wake_phrase_allows_speaker_context_prefix() -> None:
@@ -1080,7 +1056,6 @@ async def main() -> None:
     await test_developer_event_fallback_message()
     await test_completion_policy_helpers()
     await test_wake_phrase_only_matches_direct_turns()
-    await test_input_auto_gain_lifts_far_field_audio_without_clipping()
     await test_transcription_wake_phrase_allows_speaker_context_prefix()
     await test_default_sound_recognition_ignores_low_confidence_room_noise()
     await test_default_wake_window_allows_real_followup_pacing()

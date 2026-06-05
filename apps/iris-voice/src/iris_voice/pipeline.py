@@ -35,7 +35,6 @@ from pipecat.turns.user_stop import SpeechTimeoutUserTurnStopStrategy
 from pipecat.turns.user_turn_strategies import UserTurnStrategies
 
 from .api_client import fetch_session_config, llm_override, post_transcript_event
-from .audio_gain import InputAudioAutoGain
 from .env import merge_keyterms, optional_list_env, required_env, string_list
 from .observability.frame_diagnostics import VoiceFrameDiagnostics
 from .observability.observers import IrisVoiceObserver
@@ -454,7 +453,6 @@ async def run_voice_runtime(
             session=session,
             state=sound_recognition_state,
         ),
-        InputAudioAutoGain(on_audio_activity=events.mark_audio_activity),
         build_barge_in_processor(),
         stt,
         VoiceFrameDiagnostics(label="after_stt"),

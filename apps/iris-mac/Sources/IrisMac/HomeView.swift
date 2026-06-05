@@ -24,7 +24,7 @@ struct HomeView: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
-            if appState.nativeVoiceRunning {
+            if appState.nativeVoiceAssistantSpeaking {
                 Button {
                     appState.stopNativeSpeech()
                 } label: {

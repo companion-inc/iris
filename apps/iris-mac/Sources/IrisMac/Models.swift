@@ -89,6 +89,7 @@ struct VoiceSessionStart: Decodable, Equatable {
 struct LocalAudioRuntimeStatus: Decodable, Equatable {
     var ok: Bool
     var running: Bool
+    var playbackActive: Bool?
     var sessionId: String?
     var uptimeSeconds: Int?
     var lastError: String?

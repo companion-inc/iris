@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import os
+import sys
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -17,11 +19,14 @@ from pipecat.frames.frames import (
 from pipecat.pipeline.pipeline import Pipeline
 from pipecat.pipeline.task import PipelineTask
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
+from pipecat.transports.base_transport import TransportParams
 
 from .agent_completion_events import AgentCompletionSubscriber
+from .mac_voice_processing import MacVoiceProcessingInputTransport, mac_voice_processing_available
 from .runtime_events import RuntimeEvents
 from .session import VoiceSessionContext
 from .turns.barge_in import BARGE_IN_VAD_SAMPLE_RATE
+from .voice_filters import build_pipecat_input_filter
 
 
 LOCAL_PLAYBACK_ECHO_TAIL_SECONDS = 0.5
@@ -35,36 +40,59 @@ class LocalRuntimeWebSocket:
 class LocalAudioRuntimeTransport:
     def __init__(self, *, sample_rate: int, channels: int, events: RuntimeEvents):
         from pipecat.transports.local.audio import LocalAudioTransport, LocalAudioTransportParams
+        import pyaudio
 
         self._playback_active = False
         self._playback_active_until = 0.0
         self._events = events
         self._output: Pipeline | None = None
         self._direct_output: DirectLocalAudioOutput | None = None
+        self._input = None
+        self._pyaudio = None
         self._output_audio_frames = 0
         self._speaker_write_frames = 0
         self._speaker_write_bytes = 0
         self._playback_stop_task: asyncio.Task[None] | None = None
-        self._transport = LocalAudioTransport(
-            params=LocalAudioTransportParams(
-                audio_in_enabled=True,
-                audio_in_sample_rate=BARGE_IN_VAD_SAMPLE_RATE,
-                audio_in_channels=channels,
-                audio_out_enabled=True,
-                audio_out_sample_rate=sample_rate,
-                audio_out_channels=channels,
-            )
+        self._params = LocalAudioTransportParams(
+            audio_in_enabled=True,
+            audio_in_sample_rate=BARGE_IN_VAD_SAMPLE_RATE,
+            audio_in_channels=channels,
+            audio_in_filter=build_pipecat_input_filter(),
+            audio_out_enabled=True,
+            audio_out_sample_rate=sample_rate,
+            audio_out_channels=channels,
         )
+        self._use_mac_voice_processing = _use_mac_voice_processing()
+        if self._use_mac_voice_processing:
+            self._transport = None
+            self._pyaudio = pyaudio.PyAudio()
+            self._input = MacVoiceProcessingInputTransport(
+                TransportParams(
+                    audio_in_enabled=True,
+                    audio_in_sample_rate=BARGE_IN_VAD_SAMPLE_RATE,
+                    audio_in_channels=channels,
+                    audio_in_filter=self._params.audio_in_filter,
+                    audio_in_stream_on_start=self._params.audio_in_stream_on_start,
+                    audio_in_passthrough=self._params.audio_in_passthrough,
+                )
+            )
+            logger.info("iris.voice.local_audio.input_transport=mac_voice_processing")
+        else:
+            self._transport = LocalAudioTransport(params=self._params)
+            self._pyaudio = self._transport._pyaudio
+            logger.info("iris.voice.local_audio.input_transport=pipecat_local_audio")
 
     def input(self):
+        if self._input is not None:
+            return self._input
         return self._transport.input()
 
     def output(self):
         if self._output is None:
             self._direct_output = DirectLocalAudioOutput(
-                py_audio=self._transport._pyaudio,
-                sample_rate=self._transport._params.audio_out_sample_rate or BARGE_IN_VAD_SAMPLE_RATE,
-                channels=self._transport._params.audio_out_channels,
+                py_audio=self._pyaudio,
+                sample_rate=self._params.audio_out_sample_rate or BARGE_IN_VAD_SAMPLE_RATE,
+                channels=self._params.audio_out_channels,
                 on_speaker_write=self._mark_speaker_write,
             )
             self._output = Pipeline(
@@ -86,10 +114,14 @@ class LocalAudioRuntimeTransport:
             self._playback_stop_task.cancel()
         if self._direct_output is not None:
             await self._direct_output.cleanup()
-        for processor in (self._transport._input, self._transport._output):
-            if processor is not None:
-                await processor.cleanup()
-        self._transport._pyaudio.terminate()
+        if self._input is not None:
+            await self._input.cleanup()
+        if self._transport is not None:
+            for processor in (self._transport._input, self._transport._output):
+                if processor is not None:
+                    await processor.cleanup()
+        if self._pyaudio is not None:
+            self._pyaudio.terminate()
 
     def is_playback_active(self) -> bool:
         return self._playback_active or time.monotonic() < self._playback_active_until
@@ -166,6 +198,13 @@ class LocalAudioRuntimeTransport:
                 frame.num_channels,
                 written,
             )
+
+
+def _use_mac_voice_processing() -> bool:
+    raw = os.getenv("IRIS_MAC_VOICE_PROCESSING", "1").strip().lower()
+    if raw in {"0", "false", "no", "off"}:
+        return False
+    return sys.platform == "darwin" and mac_voice_processing_available()
 
 
 class LocalPlaybackStateTracker(FrameProcessor):
@@ -326,9 +365,11 @@ class LocalAudioRuntimeManager:
 
     def status(self) -> dict[str, Any]:
         running = self._task is not None and not self._task.done()
+        playback_active = self._transport.is_playback_active() if self._transport else False
         return {
             "ok": True,
             "running": running,
+            "playbackActive": playback_active,
             "sessionId": self._session.session_id if self._session else None,
             "startedAt": self._started_at,
             "uptimeSeconds": int(time.time() - self._started_at) if running and self._started_at else 0,
