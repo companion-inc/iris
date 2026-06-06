@@ -367,6 +367,15 @@ final class IrisAppState {
         voiceRuntime.stopSpeaking()
     }
 
+    func shutdown() {
+        voiceStatusTask?.cancel()
+        voiceStatusTask = nil
+        voiceRuntime.stop()
+        bridgeServer.stop()
+        apiServer.stop()
+        supervisor.stopAll()
+    }
+
     func applySettings() async {
         await configureRuntimeFromSettings(restartBridge: true)
         supervisor.startAll(voiceEnvironment: voiceEnvironment())

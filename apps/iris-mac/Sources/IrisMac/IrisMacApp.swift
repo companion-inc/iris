@@ -2,6 +2,7 @@ import SwiftUI
 
 @main
 struct IrisMacApp: App {
+    @NSApplicationDelegateAdaptor(IrisAppDelegate.self) private var appDelegate
     @State private var appState = IrisAppState()
 
     init() {
@@ -15,7 +16,11 @@ struct IrisMacApp: App {
                 .frame(minWidth: 920, minHeight: 640)
                 .preferredColorScheme(.light)
                 .task {
+                    appDelegate.shutdown = { appState.shutdown() }
                     await appState.start()
+                }
+                .onReceive(NotificationCenter.default.publisher(for: NSApplication.willTerminateNotification)) { _ in
+                    appState.shutdown()
                 }
         }
         .windowStyle(.hiddenTitleBar)
@@ -49,8 +54,7 @@ struct IrisMacApp: App {
             Label(appState.bridgeHealth.isRunning ? "Codex Ready" : "Codex Unavailable", systemImage: appState.bridgeHealth.isRunning ? "checkmark.circle" : "xmark.circle")
             Divider()
             Button("Quit Iris") {
-                appState.bridgeServer.stop()
-                appState.supervisor.stopAll()
+                appState.shutdown()
                 NSApplication.shared.terminate(nil)
             }
         }
@@ -60,6 +64,22 @@ struct IrisMacApp: App {
         NSApplication.shared.activate(ignoringOtherApps: true)
         if let window = NSApplication.shared.windows.first {
             window.makeKeyAndOrderFront(nil)
+        }
+    }
+}
+
+final class IrisAppDelegate: NSObject, NSApplicationDelegate {
+    var shutdown: (@MainActor () -> Void)?
+
+    func applicationWillTerminate(_ notification: Notification) {
+        if let shutdown {
+            ProcessSupervisor.appendSupervisorLog("application will terminate")
+            MainActor.assumeIsolated {
+                shutdown()
+            }
+        } else {
+            ProcessSupervisor.appendSupervisorLog("application will terminate without app state")
+            ProcessSupervisor.terminateKnownSidecars()
         }
     }
 }

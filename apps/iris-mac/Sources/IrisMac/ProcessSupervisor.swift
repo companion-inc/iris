@@ -1,5 +1,5 @@
 import Foundation
-import Network
+import Darwin
 
 @MainActor
 @Observable
@@ -32,12 +32,16 @@ final class ProcessSupervisor {
     func startAll(voiceEnvironment: [String: String] = [:]) {
         do {
             try FileManager.default.createDirectory(at: workspace, withIntermediateDirectories: true)
-            if speakerIDProcess == nil && !isPortListening(4749) {
+            if speakerIDProcess == nil {
+                Self.terminateKnownSidecars(kinds: [.speakerID])
+                Self.appendSupervisorLog("starting iris-speaker-id repoRoot=\(repoRoot.path)")
                 speakerIDProcess = try startSpeakerIDSidecar()
                 speakerIDProcessID = speakerIDProcess?.processIdentifier
                 speakerIDLaunchCommand = "uv run iris-speaker-id"
             }
-            if voiceProcess == nil && !isPortListening(4748) {
+            if voiceProcess == nil {
+                Self.terminateKnownSidecars(kinds: [.voice])
+                Self.appendSupervisorLog("starting iris-voice repoRoot=\(repoRoot.path)")
                 var environment = [
                     "IRIS_AUTH_MODE": "local",
                     "IRIS_API_URL": "http://127.0.0.1:4747",
@@ -54,13 +58,18 @@ final class ProcessSupervisor {
             lastError = nil
         } catch {
             lastError = error.localizedDescription
+            Self.appendSupervisorLog("start failed: \(error.localizedDescription)")
         }
     }
 
     func stopAll() {
-        for process in [voiceProcess, speakerIDProcess] {
-            process?.terminate()
+        Self.appendSupervisorLog("stopping iris sidecars")
+        let processIDs = [voiceProcess, speakerIDProcess]
+            .compactMap { $0?.processIdentifier }
+        for processID in processIDs {
+            Self.terminateProcessGroup(processID)
         }
+        Self.terminateKnownSidecars()
         voiceLogHandle?.closeFile()
         speakerIDLogHandle?.closeFile()
         voiceProcess = nil
@@ -71,6 +80,27 @@ final class ProcessSupervisor {
         speakerIDLogHandle = nil
         voiceLaunchCommand = "Not started"
         speakerIDLaunchCommand = "Not started"
+    }
+
+    nonisolated static func appendSupervisorLog(_ message: String) {
+        let directory = FileManager.default
+            .homeDirectoryForCurrentUser
+            .appending(path: "Library/Logs/Iris", directoryHint: .isDirectory)
+        do {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+            let url = directory.appending(path: "iris-supervisor.log")
+            let timestamp = ISO8601DateFormatter().string(from: Date())
+            let line = "\(timestamp) \(message)\n"
+            if !FileManager.default.fileExists(atPath: url.path) {
+                FileManager.default.createFile(atPath: url.path, contents: nil)
+            }
+            let handle = try FileHandle(forWritingTo: url)
+            try handle.seekToEnd()
+            try handle.write(contentsOf: Data(line.utf8))
+            try handle.close()
+        } catch {
+            // Logging must never break sidecar lifecycle.
+        }
     }
 
     private func startVoiceSidecar(env: [String: String]) throws -> Process {
@@ -171,63 +201,137 @@ final class ProcessSupervisor {
 
     nonisolated private static func preparedRuntimeRoot(from bundledURL: URL) -> URL {
         let fileManager = FileManager.default
+        let bundledVersionURL = bundledURL.appending(path: ".iris-runtime-version")
+        guard let bundledVersion = try? String(contentsOf: bundledVersionURL, encoding: .utf8) else {
+            return bundledURL
+        }
         let supportRoot = fileManager.homeDirectoryForCurrentUser
             .appending(path: "Library/Application Support/Iris/Runtime", directoryHint: .isDirectory)
         let marker = supportRoot.appending(path: ".iris-runtime-version")
-        let bundledVersion = (try? String(contentsOf: bundledURL.appending(path: ".iris-runtime-version"), encoding: .utf8)) ?? "dev"
         let installedVersion = try? String(contentsOf: marker, encoding: .utf8)
         if installedVersion == bundledVersion,
-           fileManager.fileExists(atPath: supportRoot.appending(path: "package.json").path) {
+           isUsableRuntimeRoot(supportRoot) {
             return supportRoot
         }
         do {
             try? fileManager.removeItem(at: supportRoot)
             try fileManager.createDirectory(at: supportRoot.deletingLastPathComponent(), withIntermediateDirectories: true)
             try fileManager.copyItem(at: bundledURL, to: supportRoot)
-            return supportRoot
+            return isUsableRuntimeRoot(supportRoot) ? supportRoot : bundledURL
         } catch {
             return bundledURL
         }
     }
 
-    private func isPortListening(_ port: UInt16) -> Bool {
-        guard let endpointPort = NWEndpoint.Port(rawValue: port),
-              let host = IPv4Address("127.0.0.1") else {
-            return false
+    nonisolated private static func isUsableRuntimeRoot(_ url: URL) -> Bool {
+        let fileManager = FileManager.default
+        return fileManager.fileExists(atPath: url.appending(path: "package.json").path)
+            && fileManager.fileExists(atPath: url.appending(path: "apps/iris-voice/pyproject.toml").path)
+            && fileManager.fileExists(atPath: url.appending(path: "apps/iris-speaker-id/pyproject.toml").path)
+    }
+
+    nonisolated static func terminateKnownSidecars(kinds: Set<SidecarKind> = Set(SidecarKind.allCases)) {
+        let snapshot = processSnapshot()
+        let groups = matchingSidecarProcessGroups(from: snapshot, kinds: kinds)
+        for group in groups {
+            terminateProcessGroup(group)
         }
-        let connection = NWConnection(host: .ipv4(host), port: endpointPort, using: .tcp)
-        let queue = DispatchQueue(label: "iris.native.port-check.\(port)")
-        let semaphore = DispatchSemaphore(value: 0)
-        let result = PortCheckResult()
-        connection.stateUpdateHandler = { state in
-            switch state {
-            case .ready:
-                result.setListening()
-                semaphore.signal()
-            case .failed, .cancelled:
-                semaphore.signal()
-            default:
-                break
+    }
+
+    nonisolated static func matchingSidecarProcessGroups(
+        from processSnapshot: String,
+        kinds: Set<SidecarKind> = Set(SidecarKind.allCases)
+    ) -> Set<Int32> {
+        var groups = Set<Int32>()
+        for line in processSnapshot.split(separator: "\n") {
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            guard !trimmed.isEmpty else { continue }
+            let fields = trimmed.split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard fields.count == 3,
+                  let pid = Int32(fields[0]),
+                  let processGroup = Int32(fields[1]) else {
+                continue
             }
+            let command = String(fields[2])
+            guard sidecarKind(forCommand: command).map(kinds.contains) == true else {
+                continue
+            }
+            groups.insert(processGroup == 0 ? pid : processGroup)
         }
-        connection.start(queue: queue)
-        _ = semaphore.wait(timeout: .now() + 0.35)
-        connection.cancel()
-        return result.listening
+        return groups
+    }
+
+    nonisolated static func sidecarKind(forCommand command: String) -> SidecarKind? {
+        guard command.contains("uv run ") || command.contains("Python ") || command.contains(".venv/bin/") else {
+            return nil
+        }
+        if command.contains("iris-voice") && command.contains("--port 4748") {
+            return .voice
+        }
+        if command.contains("iris-speaker-id") && command.contains("--port 4749") {
+            return .speakerID
+        }
+        return nil
+    }
+
+    nonisolated private static func processSnapshot() -> String {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/bin/ps")
+        process.arguments = ["-axo", "pid=,pgid=,command="]
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        do {
+            try process.run()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            process.waitUntilExit()
+            return String(data: data, encoding: .utf8) ?? ""
+        } catch {
+            return ""
+        }
+    }
+
+    nonisolated static func terminateProcessGroup(_ processID: Int32) {
+        guard processID > 1 else { return }
+        let groupID = processGroupID(for: processID) ?? processID
+        kill(-groupID, SIGTERM)
+        usleep(250_000)
+        if processGroupIsAlive(groupID) {
+            kill(-groupID, SIGKILL)
+        }
+    }
+
+    nonisolated private static func processGroupID(for processID: Int32) -> Int32? {
+        let snapshot = processSnapshot()
+        for line in snapshot.split(separator: "\n") {
+            let fields = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard fields.count == 3,
+                  let pid = Int32(fields[0]),
+                  let processGroup = Int32(fields[1]),
+                  pid == processID else {
+                continue
+            }
+            return processGroup
+        }
+        return nil
+    }
+
+    nonisolated private static func processGroupIsAlive(_ processGroupID: Int32) -> Bool {
+        let snapshot = processSnapshot()
+        for line in snapshot.split(separator: "\n") {
+            let fields = line.trimmingCharacters(in: .whitespaces).split(separator: " ", maxSplits: 2, omittingEmptySubsequences: true)
+            guard fields.count >= 2,
+                  let group = Int32(fields[1]),
+                  group == processGroupID else {
+                continue
+            }
+            return true
+        }
+        return false
     }
 }
 
-private final class PortCheckResult: @unchecked Sendable {
-    private let lock = NSLock()
-    private var value = false
-
-    var listening: Bool {
-        lock.withLock { value }
-    }
-
-    func setListening() {
-        lock.withLock {
-            value = true
-        }
-    }
+enum SidecarKind: CaseIterable {
+    case voice
+    case speakerID
 }
