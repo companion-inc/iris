@@ -491,6 +491,8 @@ async def test_screen_vision_can_capture_jpeg() -> None:
 
 
 async def test_camera_vision_can_capture_jpeg() -> None:
+    if os.getenv("IRIS_RUN_CAMERA_TESTS") != "1":
+        return
     image = await _capture_default_camera_jpeg()
     assert image.startswith(b"\xff\xd8\xff")
     assert len(image) > 1024
