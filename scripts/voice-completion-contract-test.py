@@ -26,6 +26,11 @@ from iris_voice.local_audio import (  # noqa: E402
     DirectLocalAudioOutput,
     LocalAudioRuntimeManager,
     LocalPlaybackStateTracker,
+    _local_input_transport_name,
+)
+from iris_voice.ffmpeg_avfoundation_input import (  # noqa: E402
+    _avfoundation_audio_input,
+    _ffmpeg_command,
 )
 from iris_voice.runtime_events import RuntimeEvents  # noqa: E402
 from iris_voice.session import VoiceSessionContext  # noqa: E402
@@ -888,6 +893,54 @@ async def test_vad_speech_audio_gate_only_forwards_speech_windows() -> None:
     await gate.process_frame(after_stop, FrameDirection.DOWNSTREAM)
 
     assert gate.pushed_frames == [silence_a, silence_b, started, speech, stopped]
+
+
+async def test_ffmpeg_avfoundation_input_command_uses_explicit_audio_device() -> None:
+    previous = os.environ.get("IRIS_AVFOUNDATION_AUDIO_INPUT")
+    previous_index = os.environ.get("IRIS_AVFOUNDATION_AUDIO_INPUT_INDEX")
+    os.environ["IRIS_AVFOUNDATION_AUDIO_INPUT"] = ":7"
+    os.environ.pop("IRIS_AVFOUNDATION_AUDIO_INPUT_INDEX", None)
+    try:
+        assert _avfoundation_audio_input() == ":7"
+        assert _ffmpeg_command(device=":7", sample_rate=16000, channels=1) == [
+            "ffmpeg",
+            "-hide_banner",
+            "-nostdin",
+            "-loglevel",
+            "error",
+            "-f",
+            "avfoundation",
+            "-i",
+            ":7",
+            "-ac",
+            "1",
+            "-ar",
+            "16000",
+            "-f",
+            "s16le",
+            "-",
+        ]
+    finally:
+        if previous is None:
+            os.environ.pop("IRIS_AVFOUNDATION_AUDIO_INPUT", None)
+        else:
+            os.environ["IRIS_AVFOUNDATION_AUDIO_INPUT"] = previous
+        if previous_index is None:
+            os.environ.pop("IRIS_AVFOUNDATION_AUDIO_INPUT_INDEX", None)
+        else:
+            os.environ["IRIS_AVFOUNDATION_AUDIO_INPUT_INDEX"] = previous_index
+
+
+async def test_local_audio_input_transport_env_selects_ffmpeg_mode() -> None:
+    previous = os.environ.get("IRIS_LOCAL_AUDIO_INPUT_TRANSPORT")
+    os.environ["IRIS_LOCAL_AUDIO_INPUT_TRANSPORT"] = " ffmpeg_avfoundation "
+    try:
+        assert _local_input_transport_name() == "ffmpeg_avfoundation"
+    finally:
+        if previous is None:
+            os.environ.pop("IRIS_LOCAL_AUDIO_INPUT_TRANSPORT", None)
+        else:
+            os.environ["IRIS_LOCAL_AUDIO_INPUT_TRANSPORT"] = previous
 
 
 async def test_regular_turn_strategy_accepts_assistant_followup_after_question() -> None:

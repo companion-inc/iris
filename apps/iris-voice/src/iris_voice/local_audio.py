@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import os
 import time
 from collections import deque
 from concurrent.futures import ThreadPoolExecutor
@@ -20,6 +21,7 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from pipecat.transports.base_transport import TransportParams
 
 from .agent_completion_events import AgentCompletionSubscriber
+from .ffmpeg_avfoundation_input import FFmpegAVFoundationInputTransport
 from .mac_voice_processing import MacVoiceProcessingInputTransport
 from .runtime_events import RuntimeEvents
 from .session import VoiceSessionContext
@@ -45,6 +47,7 @@ class LocalAudioRuntimeTransport:
         self._output: Pipeline | None = None
         self._direct_output: DirectLocalAudioOutput | None = None
         self._pyaudio = pyaudio.PyAudio()
+        self.input_transport_name = _local_input_transport_name()
         self._output_audio_frames = 0
         self._speaker_write_frames = 0
         self._speaker_write_bytes = 0
@@ -58,8 +61,16 @@ class LocalAudioRuntimeTransport:
             audio_out_sample_rate=sample_rate,
             audio_out_channels=channels,
         )
-        self._input = MacVoiceProcessingInputTransport(self._params)
-        logger.info("iris.voice.local_audio.input_transport=mac_voice_processing")
+        if self.input_transport_name == "ffmpeg_avfoundation":
+            self._input = FFmpegAVFoundationInputTransport(self._params)
+        elif self.input_transport_name == "mac_voice_processing":
+            self._input = MacVoiceProcessingInputTransport(self._params)
+        else:
+            raise RuntimeError(
+                "Unsupported IRIS_LOCAL_AUDIO_INPUT_TRANSPORT="
+                f"{self.input_transport_name!r}; expected 'mac_voice_processing' or 'ffmpeg_avfoundation'"
+            )
+        logger.info("iris.voice.local_audio.input_transport={}", self.input_transport_name)
 
     def input(self):
         return self._input
@@ -335,6 +346,7 @@ class LocalAudioRuntimeManager:
             "ok": True,
             "running": running,
             "playbackActive": playback_active,
+            "inputTransport": self._transport.input_transport_name if self._transport else None,
             "sessionId": self._session.session_id if self._session else None,
             "startedAt": self._started_at,
             "uptimeSeconds": int(time.time() - self._started_at) if running and self._started_at else 0,
@@ -545,3 +557,7 @@ class LocalAudioRuntimeManager:
                 "at": now,
             }
         )
+
+
+def _local_input_transport_name() -> str:
+    return os.getenv("IRIS_LOCAL_AUDIO_INPUT_TRANSPORT", "mac_voice_processing").strip().lower()
