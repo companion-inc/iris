@@ -479,6 +479,11 @@ async def test_system_prompt_treats_user_turns_as_imperfect_speech() -> None:
     assert "too garbled to recover a request" in prompt
     assert "[inhale]" in prompt
     assert "Speech tags are available" in prompt
+    assert "Casual check-ins get casual replies" in prompt
+    assert "Do not append generic assistant offers to casual replies" in prompt
+    assert "Do not volunteer saved memories during greetings" in prompt
+    assert "Use the end tool only for an explicit instruction" in prompt
+    assert "Do not use the end tool just because the user says they are good" in prompt
     assert "Pick the lowest-latency tool that fully satisfies the request" in prompt
     assert "Use shell_exec for direct, safe, one-step local commands" in prompt
     assert "Use shell_exec for explicit named-app launches" in prompt
@@ -491,7 +496,16 @@ async def test_system_prompt_treats_user_turns_as_imperfect_speech() -> None:
     assert "open Safari" not in prompt
     assert "open DoorDash" not in prompt
 
+    memory_prompt = system_instruction([{"kind": "fact", "content": "The user watches a convergence trade."}])
+    assert "Do not mention them during greetings, small talk, or generic check-ins" in memory_prompt
+    assert "The user watches a convergence trade." in memory_prompt
+
     schema = basic_voice_tools()
+    end_tool = next(tool for tool in schema.standard_tools if tool.name == "end")
+    assert "only when the user explicitly instructs Iris to stop" in end_tool.description
+    assert "Do not use this for ordinary thanks" in end_tool.description
+    assert "polite refusals" in end_tool.description
+    assert "user is good and does not need help" in end_tool.description
     shell_tool = next(tool for tool in schema.standard_tools if tool.name == "shell_exec")
     assert "open a named Mac app with open -a" in shell_tool.description
     assert "opening apps" not in shell_tool.description

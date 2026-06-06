@@ -120,9 +120,11 @@ def basic_voice_tools() -> ToolsSchema:
             FunctionSchema(
                 name="end",
                 description=(
-                    "End the active voice chat. Use this for generic direct stop/cancel/end phrases "
-                    "such as 'Iris stop', 'stop', 'cancel', 'that's all', or 'never mind' when the user "
-                    "is not clearly referring to desktop/computer work."
+                    "End the active voice chat only when the user explicitly instructs Iris to stop, "
+                    "cancel, end, close, go away, or stop listening. Do not use this for ordinary thanks, "
+                    "polite refusals, social sign-offs, short acknowledgements, or statements that the "
+                    "user is good and does not need help. If the user is stopping desktop/computer work, "
+                    "use the agent interrupt path instead."
                 ),
                 properties={},
                 required=[],
