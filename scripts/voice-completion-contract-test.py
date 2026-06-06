@@ -34,6 +34,7 @@ from iris_voice.sound_recognition import (  # noqa: E402
     DEFAULT_LOG_SOUND_THRESHOLD,
     default_sound_recognition_watches,
 )
+from iris_voice.stt_audio_gate import VADSpeechAudioGate  # noqa: E402
 from iris_voice.tools import agent_result_run_id, agent_result_status  # noqa: E402
 from iris_voice.tools import _capture_default_camera_jpeg  # noqa: E402
 from iris_voice.tools import _capture_main_screen_jpeg  # noqa: E402
@@ -56,7 +57,10 @@ from pipecat.frames.frames import (  # noqa: E402
     TTSStartedFrame,
     TTSStoppedFrame,
     InterimTranscriptionFrame,
+    InputAudioRawFrame,
     TranscriptionFrame,
+    VADUserStartedSpeakingFrame,
+    VADUserStoppedSpeakingFrame,
 )
 from pipecat.processors.aggregators.llm_context import LLMContext  # noqa: E402
 from pipecat.processors.frame_processor import FrameDirection  # noqa: E402
@@ -106,6 +110,15 @@ class CapturingTranscriptRelay(TranscriptRelay):
         self.pushed_frames.append(frame)
 
 
+class CapturingVADSpeechAudioGate(VADSpeechAudioGate):
+    def __init__(self, **kwargs: Any) -> None:
+        super().__init__(**kwargs)
+        self.pushed_frames: list[Any] = []
+
+    async def push_frame(self, frame: Any, direction: FrameDirection = FrameDirection.DOWNSTREAM):
+        self.pushed_frames.append(frame)
+
+
 class FakeWord:
     def __init__(self, word: str, speaker: int | str | None) -> None:
         self.word = word
@@ -140,6 +153,14 @@ def pcm_tone(*, sample_count: int, amplitude: int) -> bytes:
         value = amplitude if index % 2 == 0 else -amplitude
         samples.extend(value.to_bytes(2, "little", signed=True))
     return bytes(samples)
+
+
+def input_audio(text_byte: int, *, bytes_count: int = 3200) -> InputAudioRawFrame:
+    return InputAudioRawFrame(
+        audio=bytes([text_byte]) * bytes_count,
+        sample_rate=16000,
+        num_channels=1,
+    )
 
 
 def session() -> VoiceSessionContext:
@@ -848,6 +869,27 @@ async def test_transcript_relay_interrupts_playback_when_transcriber_hears_iris(
     assert relay.pushed_frames == [frame]
 
 
+async def test_vad_speech_audio_gate_only_forwards_speech_windows() -> None:
+    gate = CapturingVADSpeechAudioGate(preroll_seconds=0.2)
+    silence_a = input_audio(1)
+    silence_b = input_audio(2)
+    speech = input_audio(3)
+    after_stop = input_audio(4)
+
+    await gate.process_frame(silence_a, FrameDirection.DOWNSTREAM)
+    await gate.process_frame(silence_b, FrameDirection.DOWNSTREAM)
+    assert gate.pushed_frames == []
+
+    started = VADUserStartedSpeakingFrame(start_secs=0.08)
+    await gate.process_frame(started, FrameDirection.DOWNSTREAM)
+    await gate.process_frame(speech, FrameDirection.DOWNSTREAM)
+    stopped = VADUserStoppedSpeakingFrame(stop_secs=0.2)
+    await gate.process_frame(stopped, FrameDirection.DOWNSTREAM)
+    await gate.process_frame(after_stop, FrameDirection.DOWNSTREAM)
+
+    assert gate.pushed_frames == [silence_a, silence_b, started, speech, stopped]
+
+
 async def test_regular_turn_strategy_accepts_assistant_followup_after_question() -> None:
     wake_strategy = IrisWakePhraseUserTurnStartStrategy(
         phrases=["iris"],
@@ -1128,6 +1170,7 @@ async def main() -> None:
     await test_transcript_relay_routes_expected_followup_during_playback_tail()
     await test_transcript_relay_does_not_route_playback_echo_as_expected_followup()
     await test_transcript_relay_interrupts_playback_when_transcriber_hears_iris()
+    await test_vad_speech_audio_gate_only_forwards_speech_windows()
     await test_regular_turn_strategy_accepts_assistant_followup_after_question()
     await test_conversation_busy_guard()
     await test_many_pending_tool_results_clear_without_batch_injection()

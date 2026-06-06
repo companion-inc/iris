@@ -46,6 +46,7 @@ from .speaker_identity import SpeakerAudioBuffer, SpeakerIdentityMatcher
 from .session import VoiceSessionContext
 from .speech_emotion import SpeechEmotionClassifier
 from .sound_recognition import SoundRecognitionRelay, SoundRecognitionState
+from .stt_audio_gate import VADSpeechAudioGate
 from .tools import basic_voice_tools, register_basic_voice_tools
 from .transcripts import TranscriptRelay
 from .transport.device import DeviceTransport
@@ -457,6 +458,7 @@ async def run_voice_runtime(
         ),
         InputAudioActivityRelay(on_audio_activity=events.mark_audio_activity),
         build_barge_in_processor(),
+        VADSpeechAudioGate(),
         stt,
         VoiceFrameDiagnostics(label="after_stt"),
         TranscriptRelay(
